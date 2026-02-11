@@ -1,7 +1,4 @@
----
 
-## `clipboard_json_logger.py`
-```python
 # Clipboard JSON Logger
 # Version: 0.2.0
 # Date: 2026-02-11
