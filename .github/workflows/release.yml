@@ -1,0 +1,62 @@
+name: Release (macOS py2app)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install -U py2app
+
+          if [ -f setup.py ] || [ -f pyproject.toml ]; then
+            pip install -e .
+          fi
+
+      - name: Build app (py2app)
+        run: |
+          rm -rf build dist
+          python setup.py py2app
+
+      - name: Package release artifact
+        run: |
+          ls -la dist || true
+          APP_PATH=$(ls -1d dist/*.app | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in dist/"
+            exit 1
+          fi
+          APP_BASENAME=$(basename "$APP_PATH")
+          TAG_NAME="${GITHUB_REF_NAME}"
+          ZIP_NAME="${APP_BASENAME%.app}-${TAG_NAME}-macos.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Create GitHub Release + upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: true
