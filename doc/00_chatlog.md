@@ -3310,3 +3310,193 @@ Ik accepteer <a href="./tegniese_specs.md">TS v0.5.0</a>  en build plan v0.5.  G
 
 ```
 
+Hier is ’n commit-ready GitHub build + release setup vir jou clipboard-json-logger repo (py2app op macOS). Dit gee jou:
+	•	CI build op elke push/PR (lint + py2app build + artifact upload)
+	•	Release build wanneer jy ’n tag push soos v0.5.0 (bou .app, zip dit, maak GitHub Release, attach artifact)
+
+Sanity note: Ek maak dit so generies moontlik (werk selfs as jou .app naam verander), deur dist/*.app te “glob”.
+
+⸻
+
+1) .github/workflows/ci.yml
+
+name: CI (macOS build)
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          # Ensure build tooling is present
+          pip install -U py2app ruff
+
+          # If your package installs dependencies via setup.py/pyproject, install editable:
+          if [ -f setup.py ] || [ -f pyproject.toml ]; then
+            pip install -e .
+          fi
+
+      - name: Lint (ruff)
+        run: |
+          # If you don't have ruff config yet, this will still run basic checks
+          ruff check . || (echo "Ruff failed" && exit 1)
+
+      - name: Build app (py2app)
+        run: |
+          rm -rf build dist
+          python setup.py py2app
+
+      - name: Zip the .app
+        run: |
+          ls -la dist || true
+          APP_PATH=$(ls -1d dist/*.app | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in dist/"
+            exit 1
+          fi
+          APP_BASENAME=$(basename "$APP_PATH")
+          ZIP_NAME="${APP_BASENAME%.app}-ci-${{ github.run_number }}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: ${{ env.ZIP_NAME }}
+          if-no-files-found: error
+
+
+⸻
+
+2) .github/workflows/release.yml
+
+name: Release (macOS py2app)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-macos:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Upgrade pip
+        run: python -m pip install --upgrade pip
+
+      - name: Install dependencies
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+          pip install -U py2app
+
+          if [ -f setup.py ] || [ -f pyproject.toml ]; then
+            pip install -e .
+          fi
+
+      - name: Build app (py2app)
+        run: |
+          rm -rf build dist
+          python setup.py py2app
+
+      - name: Package release artifact
+        run: |
+          ls -la dist || true
+          APP_PATH=$(ls -1d dist/*.app | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found in dist/"
+            exit 1
+          fi
+          APP_BASENAME=$(basename "$APP_PATH")
+          TAG_NAME="${GITHUB_REF_NAME}"
+          ZIP_NAME="${APP_BASENAME%.app}-${TAG_NAME}-macos.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_NAME"
+          echo "ZIP_NAME=$ZIP_NAME" >> $GITHUB_ENV
+
+      - name: Create GitHub Release + upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: true
+
+
+⸻
+
+3) Hoe jy dit gebruik
+
+CI build (automatic)
+	•	Push na main of maak ’n PR → CI bou dist/*.app → zip → artifact.
+
+Release build (automatic)
+	1.	Tag + push:
+
+git tag -a v0.5.0 -m "v0.5.0"
+git push origin v0.5.0
+
+
+	2.	GitHub Actions:
+	•	bou .app
+	•	zip artifact
+	•	maak Release met notes
+	•	attach zip
+
+⸻
+
+4) Opsionele verbeterings (wat 80% issues voorkom)
+
+As jy wil, kan ons volgende ook “commit-ready” bysit:
+	1.	Ruff config (pyproject.toml) vir stabiele lint
+	2.	Version injection (tag → APP_VERSION in app)
+	3.	Notarization pipeline (Developer ID, codesign, notarytool) vir deel met ander Macs sonder Gatekeeper drama
+	4.	DMG maak (netjies vir downloads)
+
+⸻
+
+# Volgende opsies (kies 1)
+
+```
+	1.	A) Ek maak dit “commit-ready” vir jou repo: ek gee die presiese file tree + blokke vir elke nuwe file.
+	2.	B) Voeg notarize/codesign by (as jy Developer ID het).
+	3.	C) Bou ’n v0.5.1 patch plan: CI + release smoke tests + ruff config.
+```
+
