@@ -27,11 +27,24 @@ datumtijd: "20260214"
 },
 ```
 
-# Build code
+# Optioneel: Build MacOS frontend
 ```
 python3 -m pip install -U py2app
 python3 setup.py py2app
 ```
+
+
+## PyObjC Foundation import collisions
+
+If you ever see import errors like cannot import name 'NSObject' from 'Foundation',
+your venv may contain a conflicting PyPI package named Foundation.
+
+Fix:
+```bash
+pip uninstall -y Foundation
+pip install -U pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-UserNotifications
+```
+
 
 # Run code
 

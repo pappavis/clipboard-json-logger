@@ -1,5 +1,5 @@
 # Clipboard JSON Logger
-# Version: 0.3.1
+# Version: 0.4.0
 # Date: 2026-02-18
 #
 # macOS Menu Bar utility (PyObjC) to generate a "chatlog entry"
@@ -13,8 +13,10 @@
 # - Multiline prompt panel (NSPanel + NSTextView)
 # - Notifications (UserNotifications) with policy: All / Hotkey only / Off
 # - Settings panel with hotkey capture + apply
-# v0,3.1 adds:
-# - Fix: robust NSObject imports (prefer Cocoa; fallback to Foundation) to avoid venv collisions
+#
+# v0.4 adds:
+# - Overlay Bubble (floating button): draggable, always-on-top, right-click menu
+# - Overlay settings via menu toggles (enabled, click action, spaces, fullscreen hide)
 
 from __future__ import annotations
 
@@ -55,6 +57,7 @@ from AppKit import (
     NSWindowStyleMaskClosable,
     NSWindowStyleMaskUtilityWindow,
     NSWindowStyleMaskResizable,
+    NSWindowStyleMaskBorderless,
     NSBackingStoreBuffered,
     NSView,
     NSScrollView,
@@ -67,6 +70,12 @@ from AppKit import (
     NSBezelStyleRounded,
     NSFont,
     NSMakeRect,
+    NSColor,
+    NSScreen,
+    NSFloatingWindowLevel,
+    NSWindowCollectionBehaviorCanJoinAllSpaces,
+    NSWindowCollectionBehaviorStationary,
+    NSWindowCollectionBehaviorFullScreenAuxiliary,
 )
 from PyObjCTools import AppHelper
 
@@ -97,7 +106,7 @@ except Exception:
 
 
 APP_NAME = "Clipboard JSON Logger"
-APP_VERSION = "0.3.1"
+APP_VERSION = "0.4.0"
 APP_BUILD_DATE = "2026-02-18"
 DEFAULT_TIMEZONE = "Europe/Amsterdam"
 
@@ -110,9 +119,18 @@ K_HOTKEY_ENABLED = "hotkey_enabled"
 K_HOTKEY_KEYCODE = "hotkey_keycode"
 K_HOTKEY_MODIFIERS = "hotkey_modifiers"
 
-# v0.3.1 settings
+# v0.3 settings
 K_NOTIFICATIONS_MODE = "notifications_mode"  # all | hotkey_only | off
 K_JSON_PRETTY = "json_pretty"  # bool
+
+# v0.4 overlay settings
+K_OVERLAY_ENABLED = "overlay_enabled"  # bool
+K_OVERLAY_CLICK_ACTION = "overlay_click_action"  # generate_blank | open_prompt_panel
+K_OVERLAY_SHOW_ALL_SPACES = "overlay_show_all_spaces"  # bool
+K_OVERLAY_HIDE_IN_FULLSCREEN = "overlay_hide_in_fullscreen"  # bool
+K_OVERLAY_POS_X = "overlay_pos_x"  # float
+K_OVERLAY_POS_Y = "overlay_pos_y"  # float
+K_OVERLAY_SCREEN_INDEX = "overlay_screen_index"  # int (best-effort)
 
 
 # ----------------------------
@@ -168,6 +186,19 @@ class AppConfig:
         if self.ud.objectForKey_(K_JSON_PRETTY) is None:
             self.ud.setBool_forKey_(True, K_JSON_PRETTY)
 
+        # v0.4 overlay defaults (safe rollout)
+        if self.ud.objectForKey_(K_OVERLAY_ENABLED) is None:
+            self.ud.setBool_forKey_(False, K_OVERLAY_ENABLED)
+
+        if self.ud.objectForKey_(K_OVERLAY_CLICK_ACTION) is None:
+            self.ud.setObject_forKey_("generate_blank", K_OVERLAY_CLICK_ACTION)
+
+        if self.ud.objectForKey_(K_OVERLAY_SHOW_ALL_SPACES) is None:
+            self.ud.setBool_forKey_(True, K_OVERLAY_SHOW_ALL_SPACES)
+
+        if self.ud.objectForKey_(K_OVERLAY_HIDE_IN_FULLSCREEN) is None:
+            self.ud.setBool_forKey_(True, K_OVERLAY_HIDE_IN_FULLSCREEN)
+
         self.ud.synchronize()
 
     # --- getters ---
@@ -207,6 +238,38 @@ class AppConfig:
     def json_pretty(self) -> bool:
         return bool(self.ud.boolForKey_(K_JSON_PRETTY))
 
+    # v0.4 overlay getters
+    @property
+    def overlay_enabled(self) -> bool:
+        return bool(self.ud.boolForKey_(K_OVERLAY_ENABLED))
+
+    @property
+    def overlay_click_action(self) -> str:
+        return str(self.ud.stringForKey_(K_OVERLAY_CLICK_ACTION) or "generate_blank")
+
+    @property
+    def overlay_show_all_spaces(self) -> bool:
+        return bool(self.ud.boolForKey_(K_OVERLAY_SHOW_ALL_SPACES))
+
+    @property
+    def overlay_hide_in_fullscreen(self) -> bool:
+        return bool(self.ud.boolForKey_(K_OVERLAY_HIDE_IN_FULLSCREEN))
+
+    def get_overlay_position(self) -> Optional[Tuple[float, float, Optional[int]]]:
+        # If keys are missing, return None.
+        x_obj = self.ud.objectForKey_(K_OVERLAY_POS_X)
+        y_obj = self.ud.objectForKey_(K_OVERLAY_POS_Y)
+        if x_obj is None or y_obj is None:
+            return None
+        try:
+            x = float(self.ud.doubleForKey_(K_OVERLAY_POS_X))
+            y = float(self.ud.doubleForKey_(K_OVERLAY_POS_Y))
+            screen_idx_obj = self.ud.objectForKey_(K_OVERLAY_SCREEN_INDEX)
+            screen_idx = int(self.ud.integerForKey_(K_OVERLAY_SCREEN_INDEX)) if screen_idx_obj is not None else None
+            return (x, y, screen_idx)
+        except Exception:
+            return None
+
     # --- setters ---
     def set_default_role(self, role: str) -> None:
         self.ud.setObject_forKey_(role, K_DEFAULT_ROLE)
@@ -235,6 +298,30 @@ class AppConfig:
 
     def set_json_pretty(self, pretty: bool) -> None:
         self.ud.setBool_forKey_(bool(pretty), K_JSON_PRETTY)
+        self.ud.synchronize()
+
+    # v0.4 overlay setters
+    def set_overlay_enabled(self, enabled: bool) -> None:
+        self.ud.setBool_forKey_(bool(enabled), K_OVERLAY_ENABLED)
+        self.ud.synchronize()
+
+    def set_overlay_click_action(self, action: str) -> None:
+        self.ud.setObject_forKey_(action, K_OVERLAY_CLICK_ACTION)
+        self.ud.synchronize()
+
+    def set_overlay_show_all_spaces(self, enabled: bool) -> None:
+        self.ud.setBool_forKey_(bool(enabled), K_OVERLAY_SHOW_ALL_SPACES)
+        self.ud.synchronize()
+
+    def set_overlay_hide_in_fullscreen(self, enabled: bool) -> None:
+        self.ud.setBool_forKey_(bool(enabled), K_OVERLAY_HIDE_IN_FULLSCREEN)
+        self.ud.synchronize()
+
+    def set_overlay_position(self, x: float, y: float, screen_index: Optional[int] = None) -> None:
+        self.ud.setDouble_forKey_(float(x), K_OVERLAY_POS_X)
+        self.ud.setDouble_forKey_(float(y), K_OVERLAY_POS_Y)
+        if screen_index is not None:
+            self.ud.setInteger_forKey_(int(screen_index), K_OVERLAY_SCREEN_INDEX)
         self.ud.synchronize()
 
 
@@ -341,8 +428,6 @@ class NotificationService:
             return
 
         self._permission_requested = True
-
-        # Request permission async; we don't block app usage if user denies.
         options = int(UNAuthorizationOptionAlert | UNAuthorizationOptionSound)
 
         def _cb(granted, error):
@@ -362,16 +447,12 @@ class NotificationService:
     def notify_copied(self, title: str, body: str) -> None:
         if not self.is_available():
             return
-
-        # Attempt permission request (idempotent best-effort)
         self.ensure_permission()
-
         try:
             content = UNMutableNotificationContent.alloc().init()
             content.setTitle_(title)
             content.setBody_(body)
 
-            # Deliver immediately (no trigger)
             req = UNNotificationRequest.requestWithIdentifier_content_trigger_(
                 str(uuid.uuid4()), content, None
             )
@@ -476,7 +557,6 @@ class PromptPanelController(NSObject):
 
         content = self.panel.contentView()
 
-        # Role label + popup
         lbl_role = NSTextField.alloc().initWithFrame_(NSMakeRect(20, 320, 60, 22))
         lbl_role.setStringValue_("Role:")
         lbl_role.setEditable_(False)
@@ -487,14 +567,12 @@ class PromptPanelController(NSObject):
         self.role_popup = NSPopUpButton.alloc().initWithFrame_(NSMakeRect(80, 316, 140, 26))
         self.role_popup.addItemWithTitle_("user")
         self.role_popup.addItemWithTitle_("system")
-        # Default role selection
         if self._default_role == "system":
             self.role_popup.selectItemWithTitle_("system")
         else:
             self.role_popup.selectItemWithTitle_("user")
         content.addSubview_(self.role_popup)
 
-        # Scroll + text view
         scroll = NSScrollView.alloc().initWithFrame_(NSMakeRect(20, 70, 480, 236))
         scroll.setHasVerticalScroller_(True)
         scroll.setHasHorizontalScroller_(False)
@@ -505,7 +583,6 @@ class PromptPanelController(NSObject):
         scroll.setDocumentView_(self.text_view)
         content.addSubview_(scroll)
 
-        # Buttons
         btn_copy = NSButton.alloc().initWithFrame_(NSMakeRect(320, 20, 180, 32))
         btn_copy.setTitle_("Copy Entry")
         btn_copy.setButtonType_(NSMomentaryPushInButton)
@@ -523,7 +600,6 @@ class PromptPanelController(NSObject):
         content.addSubview_(btn_cancel)
 
     def show(self):
-        # Make text view first responder
         self.panel.makeKeyAndOrderFront_(None)
         self.panel.makeFirstResponder_(self.text_view)
 
@@ -575,11 +651,7 @@ class HotkeyCaptureView(NSView):
         keycode = int(event.keyCode())
         mods = int(event.modifierFlags())
 
-        # Convert Cocoa modifierFlags to Carbon-style mask subset
         carbon_mods = 0
-        # These bitmasks are stable in NSEventModifierFlags; use integer comparisons.
-        # Control: 1<<18, Option: 1<<19, Shift: 1<<17, Command: 1<<20 (typical)
-        # We'll map to Carbon masks when available; otherwise store 0 and rely on menu-only usage.
         if CARBON_AVAILABLE:
             if mods & (1 << 18):
                 carbon_mods |= HIToolbox.controlKey
@@ -636,7 +708,6 @@ class SettingsPanelController(NSObject):
 
         content = self.panel.contentView()
 
-        # Hotkey enabled switch
         self.chk_hotkey = NSButton.alloc().initWithFrame_(NSMakeRect(20, 190, 240, 24))
         self.chk_hotkey.setButtonType_(NSSwitchButton)
         self.chk_hotkey.setTitle_("Hotkey Enabled")
@@ -644,7 +715,6 @@ class SettingsPanelController(NSObject):
         self.chk_hotkey.setAction_("onToggleHotkeyEnabled:")
         content.addSubview_(self.chk_hotkey)
 
-        # Current hotkey label
         lbl = NSTextField.alloc().initWithFrame_(NSMakeRect(20, 160, 120, 22))
         lbl.setStringValue_("Current hotkey:")
         lbl.setEditable_(False)
@@ -658,7 +728,6 @@ class SettingsPanelController(NSObject):
         self.lbl_hotkey.setDrawsBackground_(True)
         content.addSubview_(self.lbl_hotkey)
 
-        # Capture/reset buttons
         self.btn_capture = NSButton.alloc().initWithFrame_(NSMakeRect(20, 120, 160, 30))
         self.btn_capture.setTitle_("Capture Hotkey…")
         self.btn_capture.setBezelStyle_(NSBezelStyleRounded)
@@ -673,7 +742,6 @@ class SettingsPanelController(NSObject):
         self.btn_reset.setAction_("onResetHotkey:")
         content.addSubview_(self.btn_reset)
 
-        # Notifications mode
         lbl_n = NSTextField.alloc().initWithFrame_(NSMakeRect(20, 82, 120, 22))
         lbl_n.setStringValue_("Notifications:")
         lbl_n.setEditable_(False)
@@ -689,7 +757,6 @@ class SettingsPanelController(NSObject):
         self.mode_popup.setAction_("onNotificationsModeChanged:")
         content.addSubview_(self.mode_popup)
 
-        # JSON pretty (strict mode)
         self.chk_json_pretty = NSButton.alloc().initWithFrame_(NSMakeRect(20, 46, 240, 24))
         self.chk_json_pretty.setButtonType_(NSSwitchButton)
         self.chk_json_pretty.setTitle_("Pretty JSON (Mode B)")
@@ -697,7 +764,6 @@ class SettingsPanelController(NSObject):
         self.chk_json_pretty.setAction_("onToggleJsonPretty:")
         content.addSubview_(self.chk_json_pretty)
 
-        # Status line
         self.lbl_status = NSTextField.alloc().initWithFrame_(NSMakeRect(20, 16, 480, 22))
         self.lbl_status.setEditable_(False)
         self.lbl_status.setBordered_(False)
@@ -705,7 +771,6 @@ class SettingsPanelController(NSObject):
         self.lbl_status.setStringValue_("")
         content.addSubview_(self.lbl_status)
 
-        # Capture view (invisible but focusable)
         self.capture_view = HotkeyCaptureView.alloc().initWithCallback_(lambda kc, m: self.__onCapturedHotkey(kc, m))
         self.capture_view.setFrame_(NSMakeRect(0, 0, 1, 1))
         content.addSubview_(self.capture_view)
@@ -718,7 +783,6 @@ class SettingsPanelController(NSObject):
         self.lbl_hotkey.setStringValue_(format_hotkey_display(self.config.hotkey_keycode, self.config.hotkey_modifiers))
         self.chk_json_pretty.setState_(NSControlStateValueOn if self.config.json_pretty else NSControlStateValueOff)
 
-        # Notifications mode -> popup
         mode = self.config.notifications_mode
         if mode == "all":
             self.mode_popup.selectItemWithTitle_("All")
@@ -730,7 +794,6 @@ class SettingsPanelController(NSObject):
     def _set_status(self, msg: str):
         self.lbl_status.setStringValue_(msg)
 
-    # ---- handlers ----
     def onToggleHotkeyEnabled_(self, sender):
         enabled = sender.state() == NSControlStateValueOn
         self.config.set_hotkey_enabled(enabled)
@@ -760,7 +823,6 @@ class SettingsPanelController(NSObject):
             self._set_status("Hotkey not available (Carbon missing).")
             return
 
-        # Reset to Ctrl+Opt+Cmd+J
         keycode = HIToolbox.kVK_ANSI_J
         modifiers = HIToolbox.controlKey | HIToolbox.optionKey | HIToolbox.cmdKey
         self._apply_hotkey_candidate(keycode, modifiers, is_reset=True)
@@ -773,10 +835,8 @@ class SettingsPanelController(NSObject):
         self._capture_active = True
         self.capture_view.setCapturing_(True)
         self._set_status("Press a key combo now… (requires at least 1 modifier)")
-        # Make capture view first responder so it gets keyDown events
         self.panel.makeFirstResponder_(self.capture_view)
 
-    # ---- capture callback ----
     def __onCapturedHotkey(self, keycode: int, modifiers: int):
         if not self._capture_active:
             return
@@ -784,17 +844,14 @@ class SettingsPanelController(NSObject):
         self._capture_active = False
         self.capture_view.setCapturing_(False)
 
-        # Validate: at least one modifier
         if modifiers == 0:
             self._set_status("Rejected: add at least 1 modifier (Ctrl/Opt/Cmd/Shift).")
-            # Return focus to panel
             self.panel.makeFirstResponder_(None)
             return
 
         self._apply_hotkey_candidate(keycode, modifiers, is_reset=False)
 
     def _apply_hotkey_candidate(self, keycode: int, modifiers: int, is_reset: bool):
-        # Attempt apply via callback (register hotkey). If ok, persist.
         ok, err = self.apply_callback("hotkey_candidate", (keycode, modifiers))
         if ok:
             self.config.set_hotkey(keycode, modifiers)
@@ -809,44 +866,12 @@ class SettingsPanelController(NSObject):
 # Helpers: hotkey display
 # ----------------------------
 KEYCODE_TO_CHAR = {
-    # ANSI letters
-    0: "A",
-    11: "B",
-    8: "C",
-    2: "D",
-    14: "E",
-    3: "F",
-    5: "G",
-    4: "H",
-    34: "I",
-    38: "J",
-    40: "K",
-    37: "L",
-    46: "M",
-    45: "N",
-    31: "O",
-    35: "P",
-    12: "Q",
-    15: "R",
-    1: "S",
-    17: "T",
-    32: "U",
-    9: "V",
-    13: "W",
-    7: "X",
-    16: "Y",
-    6: "Z",
-    # digits row
-    18: "1",
-    19: "2",
-    20: "3",
-    21: "4",
-    23: "5",
-    22: "6",
-    26: "7",
-    28: "8",
-    25: "9",
-    29: "0",
+    0: "A", 11: "B", 8: "C", 2: "D", 14: "E", 3: "F", 5: "G", 4: "H",
+    34: "I", 38: "J", 40: "K", 37: "L", 46: "M", 45: "N", 31: "O", 35: "P",
+    12: "Q", 15: "R", 1: "S", 17: "T", 32: "U", 9: "V", 13: "W", 7: "X",
+    16: "Y", 6: "Z",
+    18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7", 28: "8",
+    25: "9", 29: "0",
 }
 
 
@@ -863,6 +888,301 @@ def format_hotkey_display(keycode: int, modifiers: int) -> str:
             parts.append("⌘")
     key = KEYCODE_TO_CHAR.get(int(keycode), f"keycode:{int(keycode)}")
     return "".join(parts) + key
+
+
+# ----------------------------
+# v0.4 Overlay Bubble
+# ----------------------------
+class OverlayBubbleButton(NSButton):
+    """
+    A draggable bubble button. Left click triggers controller primary action.
+    Right click shows a context menu.
+    Dragging moves the window and persists position on mouseUp.
+    """
+
+    def initWithController_(self, controller):
+        self = objc.super(OverlayBubbleButton, self).init()
+        if self is None:
+            return None
+        self._controller = controller
+        self._dragging = False
+        self._down_loc = None
+        self._down_origin = None
+        return self
+
+    def mouseDown_(self, event):
+        try:
+            w = self.window()
+            if w is None:
+                return
+            self._dragging = False
+            self._down_loc = event.locationInWindow()
+            self._down_origin = w.frame().origin
+        except Exception:
+            pass
+
+    def mouseDragged_(self, event):
+        try:
+            w = self.window()
+            if w is None or self._down_loc is None or self._down_origin is None:
+                return
+
+            loc = event.locationInWindow()
+            dx = loc.x - self._down_loc.x
+            dy = loc.y - self._down_loc.y
+
+            # Mark as dragging when there's meaningful movement
+            if abs(dx) > 2 or abs(dy) > 2:
+                self._dragging = True
+
+            new_x = self._down_origin.x + dx
+            new_y = self._down_origin.y + dy
+
+            w.setFrameOrigin_((new_x, new_y))
+        except Exception:
+            pass
+
+    def mouseUp_(self, event):
+        try:
+            if self._controller is None:
+                return
+
+            if self._dragging:
+                self._controller.persist_position()
+            else:
+                self._controller.on_primary_click()
+
+            self._dragging = False
+            self._down_loc = None
+            self._down_origin = None
+        except Exception:
+            pass
+
+    def rightMouseDown_(self, event):
+        try:
+            if self._controller is not None:
+                self._controller.show_context_menu(event, self)
+        except Exception:
+            pass
+
+
+class OverlayBubbleController(NSObject):
+    """
+    Creates and manages the floating overlay bubble window.
+    """
+
+    def initWithConfig_callbacks_(self, config: AppConfig, callbacks: dict):
+        self = objc.super(OverlayBubbleController, self).init()
+        if self is None:
+            return None
+
+        self.config = config
+        self.callbacks = callbacks  # dict of callables
+        self.window = None
+        self.button = None
+
+        self._build_window()
+        self.apply_settings()
+        self.restore_position()
+        return self
+
+    def _build_window(self):
+        # Borderless utility panel
+        style = NSWindowStyleMaskBorderless | NSWindowStyleMaskUtilityWindow
+        self.window = NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
+            NSMakeRect(200, 200, 48, 48), style, NSBackingStoreBuffered, False
+        )
+        self.window.setTitle_(APP_NAME)
+        self.window.setLevel_(NSFloatingWindowLevel)
+        self.window.setOpaque_(False)
+        self.window.setBackgroundColor_(NSColor.clearColor())
+        self.window.setHasShadow_(True)
+
+        content = self.window.contentView()
+
+        # Bubble button fills the window
+        self.button = OverlayBubbleButton.alloc().initWithController_(self)
+        self.button.setFrame_(NSMakeRect(0, 0, 48, 48))
+        self.button.setTitle_("{ }")
+        self.button.setBezelStyle_(NSBezelStyleRounded)
+        self.button.setBordered_(True)
+
+        # Layer-backed rounded look (best-effort)
+        try:
+            self.button.setWantsLayer_(True)
+            layer = self.button.layer()
+            if layer is not None:
+                layer.setCornerRadius_(24.0)
+                layer.setMasksToBounds_(True)
+        except Exception:
+            pass
+
+        content.addSubview_(self.button)
+
+    def show(self):
+        try:
+            self.window.orderFrontRegardless()
+        except Exception:
+            try:
+                self.window.makeKeyAndOrderFront_(None)
+            except Exception:
+                pass
+
+    def close(self):
+        try:
+            if self.window is not None:
+                self.window.orderOut_(None)
+                self.window.close()
+        except Exception:
+            pass
+
+    def apply_settings(self):
+        if self.window is None:
+            return
+
+        behavior = 0
+
+        if self.config.overlay_show_all_spaces:
+            behavior |= int(NSWindowCollectionBehaviorCanJoinAllSpaces)
+            behavior |= int(NSWindowCollectionBehaviorStationary)
+
+        # Fullscreen hide best-effort:
+        # If hide_in_fullscreen is True, we DO NOT add FullScreenAuxiliary.
+        # If False, we allow it (user wants overlay in fullscreen).
+        if not self.config.overlay_hide_in_fullscreen:
+            behavior |= int(NSWindowCollectionBehaviorFullScreenAuxiliary)
+
+        try:
+            self.window.setCollectionBehavior_(behavior)
+        except Exception:
+            pass
+
+    def on_primary_click(self):
+        action = self.config.overlay_click_action
+        if action == "open_prompt_panel":
+            cb = self.callbacks.get("open_prompt")
+        else:
+            cb = self.callbacks.get("generate_blank")
+        if cb:
+            cb()
+
+    def show_context_menu(self, event, view):
+        menu = NSMenu.alloc().init()
+
+        def add_item(title, cb_key):
+            item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(title, "noop:", "")
+            item.setTarget_(self)
+            item._cb_key = cb_key  # attach attribute
+            menu.addItem_(item)
+
+        add_item("Generate Entry", "generate_blank")
+        add_item("Generate with Prompt…", "open_prompt")
+        menu.addItem_(NSMenuItem.separatorItem())
+        add_item("Mode A (Loose diary)", "set_mode_loose")
+        add_item("Mode B (Strict JSON)", "set_mode_strict")
+        menu.addItem_(NSMenuItem.separatorItem())
+        add_item("Open Settings…", "open_settings")
+        add_item("Hide Overlay", "hide_overlay")
+        menu.addItem_(NSMenuItem.separatorItem())
+        add_item("Quit", "quit")
+
+        # Show menu at mouse location
+        try:
+            loc = event.locationInWindow()
+            menu.popUpMenuPositioningItem_atLocation_inView_(None, loc, view)
+        except Exception:
+            try:
+                menu.popUpMenuPositioningItem_atLocation_inView_(None, (10, 10), view)
+            except Exception:
+                pass
+
+    def noop_(self, sender):
+        # Called by menu items; dispatch to callback
+        try:
+            key = getattr(sender, "_cb_key", None)
+            if not key:
+                return
+            cb = self.callbacks.get(key)
+            if cb:
+                cb()
+        except Exception:
+            pass
+
+    def persist_position(self):
+        try:
+            if self.window is None:
+                return
+            frame = self.window.frame()
+            origin = frame.origin
+            screen_idx = None
+            try:
+                screens = NSScreen.screens()
+                screen = self.window.screen()
+                if screen is not None and screens is not None:
+                    for i in range(len(screens)):
+                        if screens[i] == screen:
+                            screen_idx = i
+                            break
+            except Exception:
+                screen_idx = None
+
+            self.config.set_overlay_position(float(origin.x), float(origin.y), screen_idx)
+        except Exception:
+            pass
+
+    def restore_position(self):
+        if self.window is None:
+            return
+
+        # Default placement: top-right of main screen visible frame with margin
+        margin = 16.0
+        w = 48.0
+        h = 48.0
+
+        screens = None
+        try:
+            screens = NSScreen.screens()
+        except Exception:
+            screens = None
+
+        def pick_screen(idx: Optional[int]):
+            if screens is None or len(screens) == 0:
+                return None
+            if idx is not None and 0 <= idx < len(screens):
+                return screens[idx]
+            try:
+                return NSScreen.mainScreen()
+            except Exception:
+                return screens[0]
+
+        saved = self.config.get_overlay_position()
+        if saved is None:
+            scr = pick_screen(None)
+            if scr is None:
+                return
+            vf = scr.visibleFrame()
+            x = vf.origin.x + vf.size.width - w - margin
+            y = vf.origin.y + vf.size.height - h - margin
+            self.window.setFrameOrigin_((x, y))
+            self.persist_position()
+            return
+
+        x, y, sidx = saved
+        scr = pick_screen(sidx)
+        if scr is None:
+            self.window.setFrameOrigin_((x, y))
+            return
+
+        vf = scr.visibleFrame()
+        min_x = vf.origin.x
+        min_y = vf.origin.y
+        max_x = vf.origin.x + vf.size.width - w
+        max_y = vf.origin.y + vf.size.height - h
+
+        cx = min(max(float(x), float(min_x)), float(max_x))
+        cy = min(max(float(y), float(min_y)), float(max_y))
+
+        self.window.setFrameOrigin_((cx, cy))
 
 
 # ----------------------------
@@ -888,28 +1208,76 @@ class AppController(NSObject):
         self.prompt_panel = None
         self.settings_panel = None
 
+        # v0.4 overlay
+        self.overlay = None
+
         return self
 
     def applicationDidFinishLaunching_(self, notification):
         NSLog("%@ v%@ (%@) launching", APP_NAME, APP_VERSION, APP_BUILD_DATE)
         self._setup_menu_bar()
 
-        # Best-effort hotkey
         if self.config.hotkey_enabled:
             self._start_hotkey()
 
-        # If notifications are enabled (not off) prepare permission best-effort
         if self.config.notifications_mode != "off":
             self.notifier.ensure_permission()
 
+        # Start overlay if enabled
+        if self.config.overlay_enabled:
+            self._start_overlay()
+
     def applicationWillTerminate_(self, notification):
-        # Best-effort cleanup
         try:
             if self.hotkey is not None:
                 self.hotkey.stop()
                 self.hotkey = None
         except Exception:
             pass
+
+        try:
+            self._stop_overlay()
+        except Exception:
+            pass
+
+    # ---------- Overlay lifecycle ----------
+    def _start_overlay(self):
+        if self.overlay is not None:
+            try:
+                self.overlay.apply_settings()
+                self.overlay.show()
+                return
+            except Exception:
+                pass
+
+        callbacks = {
+            "generate_blank": lambda: self.generate_and_copy(source="overlay"),
+            "open_prompt": lambda: self.onGenerateWithPrompt_(None),
+            "open_settings": lambda: self.onOpenSettings_(None),
+            "hide_overlay": lambda: self._hide_overlay_from_menu(),
+            "quit": lambda: NSApplication.sharedApplication().terminate_(None),
+            "set_mode_loose": lambda: self._set_mode_and_refresh("loose_diary"),
+            "set_mode_strict": lambda: self._set_mode_and_refresh("strict_json"),
+        }
+        try:
+            self.overlay = OverlayBubbleController.alloc().initWithConfig_callbacks_(self.config, callbacks)
+            self.overlay.show()
+        except Exception as e:
+            NSLog("Overlay start failed: %@", str(e))
+            self.overlay = None
+
+    def _stop_overlay(self):
+        if self.overlay is not None:
+            try:
+                self.overlay.close()
+            except Exception:
+                pass
+        self.overlay = None
+
+    def _hide_overlay_from_menu(self):
+        self.config.set_overlay_enabled(False)
+        self._stop_overlay()
+        self._refresh_menu_states()
 
     # ---------- UI setup ----------
     def _setup_menu_bar(self):
@@ -918,12 +1286,10 @@ class AppController(NSObject):
 
         self.menu = NSMenu.alloc().init()
 
-        # Generate Entry
         mi_gen = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Generate Entry", "onGenerateEntry:", "")
         mi_gen.setTarget_(self)
         self.menu.addItem_(mi_gen)
 
-        # Generate with Prompt...
         mi_prompt = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Generate with Prompt…", "onGenerateWithPrompt:", "")
         mi_prompt.setTarget_(self)
         self.menu.addItem_(mi_prompt)
@@ -978,19 +1344,49 @@ class AppController(NSObject):
 
         self.menu.addItem_(NSMenuItem.separatorItem())
 
-        # Settings…
+        # v0.4 Overlay submenu
+        overlay_menu = NSMenu.alloc().init()
+
+        self.mi_overlay_enabled = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Overlay Enabled", "onToggleOverlayEnabled:", "")
+        self.mi_overlay_enabled.setTarget_(self)
+        overlay_menu.addItem_(self.mi_overlay_enabled)
+
+        overlay_menu.addItem_(NSMenuItem.separatorItem())
+
+        self.mi_overlay_click_blank = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Click: Generate blank", "onOverlayClickBlank:", "")
+        self.mi_overlay_click_blank.setTarget_(self)
+        overlay_menu.addItem_(self.mi_overlay_click_blank)
+
+        self.mi_overlay_click_prompt = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Click: Open prompt panel", "onOverlayClickPrompt:", "")
+        self.mi_overlay_click_prompt.setTarget_(self)
+        overlay_menu.addItem_(self.mi_overlay_click_prompt)
+
+        overlay_menu.addItem_(NSMenuItem.separatorItem())
+
+        self.mi_overlay_all_spaces = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Show on all Spaces", "onToggleOverlayAllSpaces:", "")
+        self.mi_overlay_all_spaces.setTarget_(self)
+        overlay_menu.addItem_(self.mi_overlay_all_spaces)
+
+        self.mi_overlay_hide_fullscreen = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hide in fullscreen", "onToggleOverlayHideFullscreen:", "")
+        self.mi_overlay_hide_fullscreen.setTarget_(self)
+        overlay_menu.addItem_(self.mi_overlay_hide_fullscreen)
+
+        overlay_root = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Overlay", None, "")
+        overlay_root.setSubmenu_(overlay_menu)
+        self.menu.addItem_(overlay_root)
+
+        self.menu.addItem_(NSMenuItem.separatorItem())
+
         mi_settings = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Settings…", "onOpenSettings:", "")
         mi_settings.setTarget_(self)
         self.menu.addItem_(mi_settings)
 
-        # Hotkey quick toggle in menu (optional convenience)
         self.mi_hotkey = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Hotkey Enabled", "onToggleHotkey:", "")
         self.mi_hotkey.setTarget_(self)
         self.menu.addItem_(self.mi_hotkey)
 
         self.menu.addItem_(NSMenuItem.separatorItem())
 
-        # Quit
         mi_quit = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_("Quit", "terminate:", "q")
         self.menu.addItem_(mi_quit)
 
@@ -1012,6 +1408,16 @@ class AppController(NSObject):
         self.mi_notif_off.setState_(NSControlStateValueOn if nmode == "off" else NSControlStateValueOff)
 
         self.mi_hotkey.setState_(NSControlStateValueOn if self.config.hotkey_enabled else NSControlStateValueOff)
+
+        # overlay states
+        self.mi_overlay_enabled.setState_(NSControlStateValueOn if self.config.overlay_enabled else NSControlStateValueOff)
+
+        click_action = self.config.overlay_click_action
+        self.mi_overlay_click_blank.setState_(NSControlStateValueOn if click_action == "generate_blank" else NSControlStateValueOff)
+        self.mi_overlay_click_prompt.setState_(NSControlStateValueOn if click_action == "open_prompt_panel" else NSControlStateValueOff)
+
+        self.mi_overlay_all_spaces.setState_(NSControlStateValueOn if self.config.overlay_show_all_spaces else NSControlStateValueOff)
+        self.mi_overlay_hide_fullscreen.setState_(NSControlStateValueOn if self.config.overlay_hide_in_fullscreen else NSControlStateValueOff)
 
     # ---------- Core ----------
     def _make_entry(self, role: str, prompt: str) -> EntryModel:
@@ -1054,7 +1460,6 @@ class AppController(NSObject):
             NSLog("Carbon not available; hotkey disabled.")
             return False
 
-        # Stop existing
         if self.hotkey is not None:
             self.hotkey.stop()
             self.hotkey = None
@@ -1084,10 +1489,6 @@ class AppController(NSObject):
             self.hotkey = None
 
     # Apply callbacks from settings panel:
-    # - "hotkey": enable/disable
-    # - "hotkey_candidate": attempt register candidate (keycode, modifiers) -> returns (ok, err)
-    # - "notifications": update permission best-effort
-    # - "json": refresh only
     def apply_settings(self, reason: str, payload=None):
         if reason == "hotkey":
             if self.config.hotkey_enabled:
@@ -1101,17 +1502,13 @@ class AppController(NSObject):
 
         if reason == "hotkey_candidate":
             if not self.config.hotkey_enabled:
-                # If hotkey is disabled, we still accept saving but can't validate registration.
                 self._refresh_menu_states()
                 return (True, None)
 
-            # Try start with candidate without persisting yet
             keycode, modifiers = payload
-            # Temporarily register
             if not CARBON_AVAILABLE:
                 return (False, "Carbon missing")
 
-            # Stop existing and attempt candidate
             self._stop_hotkey()
 
             def _trigger():
@@ -1127,7 +1524,6 @@ class AppController(NSObject):
                 self._refresh_menu_states()
                 return (True, None)
 
-            # Revert to previous
             self.hotkey = None
             reverted_ok = False
             if self.config.hotkey_enabled:
@@ -1157,7 +1553,6 @@ class AppController(NSObject):
     def onGenerateWithPrompt_(self, sender):
         try:
             if self.prompt_panel is None:
-                # Callback receives (role, prompt) or (None, None)
                 def _cb(role, prompt):
                     if role is None and prompt is None:
                         return
@@ -1168,8 +1563,6 @@ class AppController(NSObject):
 
                 self.prompt_panel = PromptPanelController.alloc().initWithDefaults_callback_(self.config.default_role, _cb)
 
-            # Always refresh default role selection before showing
-            # (If user changed role in menu)
             try:
                 if self.config.default_role == "system":
                     self.prompt_panel.role_popup.selectItemWithTitle_("system")
@@ -1189,7 +1582,6 @@ class AppController(NSObject):
                     self.config, self.apply_settings
                 )
             else:
-                # refresh current values
                 try:
                     self.settings_panel._refresh_ui()
                 except Exception:
@@ -1206,13 +1598,15 @@ class AppController(NSObject):
         self.config.set_default_role("system")
         self._refresh_menu_states()
 
-    def onSetModeLoose_(self, sender):
-        self.config.set_output_mode("loose_diary")
+    def _set_mode_and_refresh(self, mode: str):
+        self.config.set_output_mode(mode)
         self._refresh_menu_states()
 
+    def onSetModeLoose_(self, sender):
+        self._set_mode_and_refresh("loose_diary")
+
     def onSetModeStrict_(self, sender):
-        self.config.set_output_mode("strict_json")
-        self._refresh_menu_states()
+        self._set_mode_and_refresh("strict_json")
 
     def onSetNotifAll_(self, sender):
         self.config.set_notifications_mode("all")
@@ -1239,6 +1633,40 @@ class AppController(NSObject):
                 self._show_error("Hotkey", "Hotkey conflict/unavailable. Try another combo in Settings…")
         else:
             self._stop_hotkey()
+        self._refresh_menu_states()
+
+    # ---- Overlay menu handlers ----
+    def onToggleOverlayEnabled_(self, sender):
+        enabled = not self.config.overlay_enabled
+        self.config.set_overlay_enabled(enabled)
+        if enabled:
+            self._start_overlay()
+        else:
+            self._stop_overlay()
+        self._refresh_menu_states()
+
+    def onOverlayClickBlank_(self, sender):
+        self.config.set_overlay_click_action("generate_blank")
+        if self.overlay is not None:
+            self.overlay.apply_settings()
+        self._refresh_menu_states()
+
+    def onOverlayClickPrompt_(self, sender):
+        self.config.set_overlay_click_action("open_prompt_panel")
+        if self.overlay is not None:
+            self.overlay.apply_settings()
+        self._refresh_menu_states()
+
+    def onToggleOverlayAllSpaces_(self, sender):
+        self.config.set_overlay_show_all_spaces(not self.config.overlay_show_all_spaces)
+        if self.overlay is not None:
+            self.overlay.apply_settings()
+        self._refresh_menu_states()
+
+    def onToggleOverlayHideFullscreen_(self, sender):
+        self.config.set_overlay_hide_in_fullscreen(not self.config.overlay_hide_in_fullscreen)
+        if self.overlay is not None:
+            self.overlay.apply_settings()
         self._refresh_menu_states()
 
     # ---------- UI helpers ----------
