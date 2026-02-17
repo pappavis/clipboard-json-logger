@@ -5,6 +5,8 @@
 Clipboard JSON Logger — macOS menu bar app (PyObjC)
 Version: 0.5.0  (Phase 1: User + system role selection => two entries share same id+datumtijd)
 
+# copilot version
+
 Core features (TS v0.4 baseline):
 - Menu bar app (LSUIElement via plist recommended; also uses activation policy)
 - Entry model fields: id, role, prompt, datumtijd
