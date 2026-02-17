@@ -36,6 +36,10 @@ If you keep an online diary / running log and want every entry to have:
 
 …generating those fields manually breaks flow. This tool makes it instant: **Generate → Paste → Continue writing**.
 
+# Ontwikkelcyclus
+<img src="./img/ontwikkelcyclusAI.jpg" width="60%" height="60%">
+
+
 ## Output modes
 
 ### Mode A — “Loose diary” (default)
