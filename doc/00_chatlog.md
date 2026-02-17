@@ -3276,5 +3276,37 @@ Voor je output genereer doen sanity checks:
 en dit ook
 ```
 Toon de  laatste fs 0.4 volledig in github .md-formaat , zodat ik dit in 1-keer kan kopieer plakken naar github.  Sanity check dat je de voleldige FS v0.4 heb geoutput. Geef mij daarna weer opties om de app te vebeteren
+
+verfijnen fs v0.4.
+
+1. Punt 4.1 Entry model fields
+Elke entry bestaan uit:
+
+- id (string)
+- role (string: "user", "system", "user + system")
+- prompt (string; kan multiline wees)
+- datumtijd (string: "YYYYMMDD")
+
+2. Toevoegen aan Punt 6.2 Settings list (functional)
+Core:
+	•	Default role: user|system|UserAndSystem
+
+
+3. Bijwerken Punt 7.1 Role submenu: user/system (checkmark)
+- Role submenu: user/system/User + system (checkmark)
+
+Wanneer de menu optie "User + system" is.
+ - Wanneer de gebruiker een Generate menu opties kies zoals "Generate Entry" dan moet de JSON blokken voor user en system gemaakt worden, ze moeten dezelfde unieke "id" bevatten en naar clipboard gekopieerd worden.
+
+ # nieuwe functionaliteiten met behoud van de app roadmap
+1. Vertaal alle gebruiker teksten naar Afrikaans en de default taal is Afrikaans.  
+2. Het moet mogelijk zijn een taalkeuze aan te geef en de app taal wijzigen zonder app restart.
+3. Het moet mogelijk zijn app defaults naar een lokale JSON config bestand te schrijven.
+4. Bij het opstarten lees de config bestand en pas de instellingen toe.
+
+Bump de <a href="./Functionele_specs.md">FS</a> version met +0.1.
+
+Ik accepteer <a href="./tegniese_specs.md">TS v0.5.0</a>  en build plan v0.5.  Ga door naar de volgende stap.
+
 ```
 

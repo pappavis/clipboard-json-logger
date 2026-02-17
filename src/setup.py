@@ -1,23 +1,28 @@
+## `setup.py`
+
 from setuptools import setup
 
 APP = ["src/clipboard_json_logger.py"]
+DATA_FILES = []
 OPTIONS = {
-    "argv_emulation": True,
-    "packages": [],
+    "argv_emulation": False,
     "plist": {
-        "CFBundleName": "ClipboardJsonLogger",
+        "CFBundleName": "Clipboard JSON Logger",
         "CFBundleDisplayName": "Clipboard JSON Logger",
-        "CFBundleIdentifier": "com.michiel.clipboardjsonlogger",
-        "CFBundleShortVersionString": "0.4.0",
-        "CFBundleVersion": "0.4.0",
-        "LSUIElement": True,  # menu bar app (no dock icon)
+        "CFBundleIdentifier": "com.example.clipboard-json-logger",
+        "CFBundleShortVersionString": "0.5.0",
+        "CFBundleVersion": "0.5.0",
+        # Menu bar app (no Dock icon)
+        "LSUIElement": True,
     },
+    # If you end up needing explicit packages/includes, add here.
 }
 
 setup(
     name="clipboard-json-logger",
-    version="0.4.0",
+    version="0.5.0",
     app=APP,
+    data_files=DATA_FILES,
     options={"py2app": OPTIONS},
     setup_requires=["py2app"],
 )

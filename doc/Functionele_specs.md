@@ -1,159 +1,197 @@
 # Functional Specification (FS) — Clipboard JSON Logger
-**Version:** 0.4 (FS v0.4.0)  
+**Version:** 0.5 (FS v0.5.0)  
 **Date:** 2026-02-18  
 **Platform:** macOS (menu bar app)  
-**Primary user:** single-user local workflow (Michiel)  
-**Core promise:** 1 action → generate a “chatlog entry” snippet → copied to clipboard → paste into editor
+**Primary user:** single-user local workflow  
+**Core promise:** 1 action → generate “chatlog entry”(s) → copied to clipboard → paste into editor
 
 ---
 
-## 0. Sanity check (FS v0.4 completeness)
-Hier is die **volledige FS v0.4** as een dokument (geen weggelate afdelings).  
-FS v0.4 **behou alle v0.2/v0.3 funksies** en voeg **Overlay Bubble (Floating Button)** by.
+## 0. Sanity check (FS v0.5 completeness)
+Hierdie **FS v0.5** is ’n verfyning van v0.4 met **geen verlies** van bestaande funksionaliteit.
 
-### Funksies wat ingesluit is (moet alles in hierdie FS wees)
-- Menu bar app (LSUIElement; geen Dock icon)
+### Behou (van v0.4 en vroeër)
+- Menu bar app (geen Dock icon)
 - Clipboard copy van gegenereerde entry
 - Entry velde: `id`, `role`, `prompt`, `datumtijd`
 - ID strategie: `short_id` (default) of `uuid4`
 - `datumtijd` formaat: `YYYYMMDD` (timezone-aware best-effort; default Europe/Amsterdam)
 - Output modes:
-  - Modus A (Loose diary / “loose JSON-ish diary format”) **default**
+  - Modus A (Loose diary) **default**
   - Modus B (Strict JSON) **toggle**
   - Modus B “pretty JSON” **toggle**
-- Rol: default role `user`/`system` + quick switch
+- Rol: quick switch (menu) + persist
 - Prompt panel: multiline prompt invoer + role override
 - Notifications (best-effort) + policy: **All / Hotkey only / Off**
-- Global hotkey (best-effort Carbon) + **hotkey capture UI** + enable/disable + reset
+- Global hotkey (best-effort Carbon) + hotkey capture UI + enable/disable + reset
 - Settings panel vir: hotkey enabled, hotkey capture/apply/reset, notifications mode, pretty JSON toggle
-- Overlay Bubble (v0.4):
+- Overlay Bubble (Floating Button):
   - enable/disable
   - draggable + position persistence
   - always-on-top
-  - click action: generate blank **of** open prompt panel
+  - click action (generate blank OR open prompt panel)
   - right-click context menu
   - show on all Spaces toggle
   - hide in fullscreen toggle
 
-✅ Alles hierbo word **spesifiek** in hierdie FS v0.4 gedek.
+### Nuut in v0.5
+1) Role uitbreiding: **User + system** (twee blokke met dieselfde `id`)  
+2) App UI taal: **Afrikaans default**, runtime taalwissel **sonder restart**  
+3) Config export/import: defaults & settings kan na ’n **lokale JSON config** geskryf word; by opstart word config gelees en toegepas
 
 ---
 
 ## 1. Scope
-### 1.1 In scope (v0.4)
+### 1.1 In scope (v0.5)
 ’n macOS menu bar utility wat:
-1) ’n entry-model genereer met standaard velde,  
+1) een of twee entry-modelle genereer (afhangend van role),  
 2) dit formateer (Modus A of B),  
 3) dit na die macOS clipboard skryf,  
 4) opsioneel ’n notification wys,  
 5) opsioneel via hotkey trigger,  
-6) opsioneel via Overlay Bubble trigger.
+6) opsioneel via Overlay Bubble trigger,  
+7) UI taal live kan verander,  
+8) settings kan export/import via JSON config file.
 
-### 1.2 Out of scope (v0.4)
+### 1.2 Out of scope (v0.5)
 - Sync na cloud / iCloud / Dropbox
-- Outbox / history / browsing van vorige entries
+- Entry history / browsing
 - Multi-user accounts
-- Enkripsie of secrets vault
-- Editor integrasies (Obsidian/Notion API) — slegs clipboard
-- Auto-detect van “role” uit bronteks
-- Parsing of validasie van jou dagboekformaat buite Modus B strict JSON
+- Editor integrasies (Obsidian/Notion API)
+- Auto-parse van bestaande dagboek logs
+- Template engine (beyond simple settings export/import)
 
 ---
 
 ## 2. Goals & non-goals
 ### 2.1 Goals
-- Minimal friction: **1 klik** of **1 hotkey** → clipboard entry gereed.
-- Betroubaarheid: geen crashes as optional frameworks ontbreek nie (Carbon / UserNotifications).
-- Persistent settings: gebruikersvoorkeure bly oor herstarts.
-- Vinnig: “generate + copy” in < 100ms tipies.
-- Modus A bly default; Modus B is ’n toggle (strict JSON).
+- Minimal friction: 1 klik of 1 hotkey → clipboard gereed.
+- Betroubaarheid: geen crashes as optional frameworks ontbreek nie.
+- Persistent settings: bly oor herstarts.
+- Default taal: **Afrikaans**.
+- Taal kan verander **sonder app restart**.
 
 ### 2.2 Non-goals
-- Kompleks UI (tabbed preferences, multi-window flows) — hou klein.
-- “Perfect” JSON vir Modus A — Modus A is doelbewus los/diary-agtig.
-- 100% perfekte hotkey support op alle macOS weergawes — best-effort.
+- “Perfect” JSON in Modus A (dis doelbewus los).
+- 100% perfekte hotkey support oral (best-effort).
+- Kompleks config UI (v0.5 fokus op minimum bruikbare config).
 
 ---
 
 ## 3. User workflow (happy paths)
 ### 3.1 Menu bar → Generate Entry
-1. User klik status item in menu bar.
-2. Kies **Generate Entry**.
-3. App genereer entry met default role + blank prompt.
+1. User open menu bar menu.
+2. Kies **Genereer Inskrywing**.
+3. App genereer entry/entries:
+   - Role = `user` → 1 entry
+   - Role = `system` → 1 entry
+   - Role = `User + system` → **2 entries met dieselfde `id`**
 4. App kopieer output na clipboard.
 5. Opsioneel notification volgens policy.
 
 ### 3.2 Menu bar → Generate with Prompt…
-1. User kies **Generate with Prompt…**
-2. Multiline panel open (role dropdown + text input).
-3. User tik prompt, kies role (optional).
-4. Klik **Copy Entry**
-5. App kopieer output na clipboard + opsioneel notification.
+1. Kies **Genereer met Prompt…**
+2. Multiline panel open.
+3. User tik prompt + kies role.
+4. Klik **Kopieer**
+5. App genereer 1 of 2 entries (soos bo), kopieer na clipboard.
 
 ### 3.3 Hotkey → Generate Entry
-1. User druk global hotkey.
-2. App genereer blank prompt entry.
-3. App kopieer output na clipboard.
-4. Notification policy “Hotkey only” moet dit wys; “Off” nie.
+- Soos v0.4, maar respekteer nou ook `User + system` (dus 2 entries).
 
 ### 3.4 Overlay Bubble → Primary click
-1. Overlay is enabled.
-2. User klik bubble.
-3. Action volgens instelling:
-   - Generate blank entry **of**
-   - Open prompt panel
-4. Clipboard word gevul; notification volgens policy.
+- Soos v0.4, maar respekteer nou ook role selection en taal.
 
-### 3.5 Overlay Bubble → Drag
-1. User drag bubble.
-2. Bubble beweeg en snap nie noodwendig (v0.4).
-3. Op mouse-up: posisie word gestoor.
+### 3.5 Settings → Language change (no restart)
+1. User open **Instellings…**
+2. Kies taal (bv Afrikaans / Nederlands / English)
+3. UI teks in menu + panels update onmiddellik.
+
+### 3.6 Config export/import
+1. User kies **Skryf config na JSON** (export)
+2. App skryf alle defaults/settings na ’n local JSON file.
+3. By volgende app start:
+   - App lees config file (as dit bestaan)
+   - Pas settings toe
+   - UI reflekteer settings
 
 ---
 
 ## 4. Data model
 ### 4.1 Entry model fields
 Elke entry bestaan uit:
-- `id` (string)  
-- `role` (string: `"user"` of `"system"`)  
-- `prompt` (string; kan multiline wees)  
+- `id` (string)
+- `role` (string: `"user"`, `"system"`, `"UserAndSystem"`)
+- `prompt` (string; kan multiline wees)
 - `datumtijd` (string: `"YYYYMMDD"`)
+
+**Nota:** `"UserAndSystem"` is ’n **role-keuse** (generator-mode). In output word dit **twee aparte entries** met role `"user"` en `"system"`.
 
 ### 4.2 Default values
 - default role: `"user"`
 - default output mode: Modus A (loose diary)
-- default ID strategy: short_id (length ~9)
+- default ID strategy: `short_id` (length ±9)
 - default timezone: `"Europe/Amsterdam"`
 - default notifications policy: `"hotkey_only"`
 - default hotkey: Ctrl+Opt+Cmd+J (best-effort)
+- default UI language: **Afrikaans**
 
 ---
 
 ## 5. Output formats
 ### 5.1 Modus A — Loose diary format (default)
-- Doel: mens-leesbaar, pas by jou dagboekstyle.
+- Mens-leesbaar, pas by dagboekstyle.
 - Nie noodwendig geldige JSON nie.
-- Vorm (voorbeeld):
+- Enkel entry voorbeeld:
 
 ```text
 {'id': 'efeqer3fr', role: 'system', prompt: """
 Hello
-multi-line
 """
 ,
 datumtijd: "20260214"
 },
 
 5.2 Modus B — Strict JSON format (toggle)
-	•	Doel: geldige JSON vir tooling / parsing.
-	•	Opsioneel “pretty” indent.
-	•	Vorm (voorbeeld):
+	•	Geldige JSON.
+	•	Opsioneel “pretty”.
 
 {
   "id": "efeqer3fr",
   "role": "system",
-  "prompt": "Hello\nmulti-line",
+  "prompt": "Hello\n",
   "datumtijd": "20260214"
+}
+
+5.3 Output when Role = User + system
+
+Wanneer role menu op User + system staan:
+	•	App genereer 2 entries:
+	1.	role "user"
+	2.	role "system"
+	•	Beide entries deel dieselfde unieke id en dieselfde datumtijd.
+	•	prompt:
+	•	By “Generate Entry” → blank prompt vir beide
+	•	By “Generate with Prompt…” → dieselfde prompt tekst vir beide (tensy later verfyn)
+
+Clipboard output layout:
+	•	Twee blokke word na clipboard gekopieer, geskei deur ’n leë reël (vir leesbaarheid).
+	•	In Modus B bly elke blok ’n afsonderlike geldige JSON object (nie as ’n array nie).
+
+Voorbeeld (Modus B, “User + system”):
+
+{
+  "id": "abc123xyz",
+  "role": "user",
+  "prompt": "",
+  "datumtijd": "20260218"
+}
+
+{
+  "id": "abc123xyz",
+  "role": "system",
+  "prompt": "",
+  "datumtijd": "20260218"
 }
 
 
@@ -162,182 +200,176 @@ datumtijd: "20260214"
 6. Settings & persistence
 
 6.1 Storage
-	•	Alle settings word lokaal gestoor via macOS user defaults (NSUserDefaults).
-	•	Geen netwerk calls.
-	•	Geen telemetrie.
+	•	Primary: macOS user defaults (NSUserDefaults).
+	•	Add-on (v0.5): lokale JSON config file vir export/import.
 
 6.2 Settings list (functional)
 
 Core
-	•	Default role: user|system
-	•	Output mode: loose_diary|strict_json
+	•	Default role: user | system | UserAndSystem
+	•	Output mode: loose_diary | strict_json
 	•	Strict JSON pretty: true|false
-	•	ID strategy: short_id|uuid4
-	•	datumtijd strategy: (v0.4: date_yyyymmdd)
+	•	ID strategy: short_id | uuid4
+	•	datumtijd strategy: date_yyyymmdd
+	•	UI language: Afrikaans | Nederlands | English | ... (extensible)
 
 Notifications
-	•	Notifications policy: all|hotkey_only|off
+	•	Notifications policy: all | hotkey_only | off
 
 Hotkey
 	•	Hotkey enabled: true|false
-	•	Hotkey keycode + modifiers (Carbon mask) (best-effort)
+	•	Hotkey keycode + modifiers (best-effort)
 
-Overlay Bubble (v0.4)
+Overlay Bubble
 	•	Overlay enabled: true|false
-	•	Overlay click action: generate_blank|open_prompt_panel
+	•	Overlay click action: generate_blank | open_prompt_panel
 	•	Show on all Spaces: true|false
 	•	Hide in fullscreen: true|false
-	•	Saved position: x,y (+ optional screen index best-effort)
+	•	Saved position: x,y (+ optional screen hint)
+
+Config file
+	•	Config file path (fixed default + optional “choose file” later)
+	•	Actions:
+	•	Export settings to JSON
+	•	Import/apply settings from JSON (on demand, plus at startup)
 
 ⸻
 
 7. UI requirements
 
 7.1 Menu bar item
-	•	Status bar icon/text minimal (bv { }).
-	•	Menu items:
-	•	Generate Entry
-	•	Generate with Prompt…
-	•	Role submenu: user/system (checkmark)
+	•	Status icon/text minimal.
+	•	Menu items (Afrikaans default labels):
+	•	Genereer Inskrywing
+	•	Genereer met Prompt…
+	•	Role submenu: user / system / User + system (checkmark)
 	•	Output mode submenu: Mode A / Mode B (checkmark)
 	•	Notifications submenu: All / Hotkey only / Off (checkmark)
-	•	Overlay submenu (v0.4):
-	•	Overlay enabled (checkmark)
-	•	Click action: Generate blank / Open prompt panel (checkmark)
-	•	Show on all Spaces (checkmark)
-	•	Hide in fullscreen (checkmark)
-	•	Settings…
-	•	Hotkey enabled toggle
+	•	Overlay submenu (enable + click action + spaces + fullscreen)
+	•	Instellings…
+	•	Hotkey geaktiveer (toggle)
 	•	Quit
 
-7.2 Prompt panel
-	•	Multiline text view.
-	•	Role dropdown.
-	•	Buttons: Copy Entry, Cancel.
-	•	Cancel doen niks.
+7.2 Role submenu (updated)
+	•	Role submenu: user / system / User + system (checkmark)
 
-7.3 Settings panel (v0.3+)
-	•	Hotkey enabled switch
-	•	Hotkey capture:
-	•	Capture Hotkey… (user presses combo)
-	•	Validate: minstens 1 modifier
-	•	Apply / reject (conflict/unavailable)
-	•	Reset na default
-	•	Notifications dropdown: All / Hotkey only / Off
-	•	Pretty JSON toggle (Mode B)
-	•	Status label vir feedback (“Hotkey applied”, “Rejected: add modifier”, ens.)
+Behavior when “User + system”:
+	•	“Generate Entry” en “Generate with Prompt…” moet 2 entries genereer,
+	•	dieselfde unieke id,
+	•	kopieer beide na clipboard (geskei deur leë reël).
 
-7.4 Overlay Bubble (v0.4)
-	•	’n klein floating knop/bubble (bv { })
-	•	Always-on-top
-	•	Draggable
-	•	Left click:
-	•	action per setting (blank generate of prompt panel)
-	•	Right click:
-	•	Context menu met:
-	•	Generate Entry
-	•	Generate with Prompt…
-	•	Mode A
-	•	Mode B
-	•	Open Settings…
-	•	Hide Overlay
-	•	Quit
-	•	Position persistence: op drag release word posisie gestoor.
-	•	Multi-screen: restore best-effort; clamp binne screen visible frame.
+7.3 Prompt panel
+	•	Multiline prompt invoer.
+	•	Role dropdown: user/system/User + system.
+	•	Knoppies: Kopieer, Kanselleer.
+
+7.4 Settings panel
+	•	Soos v0.4, plus:
+	•	Taalkeuse dropdown
+	•	Config actions:
+	•	Skryf config na JSON
+	•	Lees config van JSON (Apply)
+
+7.5 Overlay Bubble
+	•	Soos v0.4, plus:
+	•	respekteer taal (context menu labels) en role behavior.
 
 ⸻
 
-8. Notification behavior
-	•	Best-effort via UserNotifications framework.
-	•	Permission request:
-	•	attempt on launch as policy ≠ off (idempotent, async).
-	•	When to show:
-	•	policy all: show for menu + hotkey + overlay
-	•	policy hotkey_only: show only when source == hotkey
-	•	policy off: never show
-	•	Failure:
-	•	If framework missing / permission denied → silently degrade (no crash).
+8. Localization (v0.5)
+
+8.1 Default language
+	•	Default UI taal = Afrikaans.
+
+8.2 Runtime language switching (no restart)
+	•	Wanneer user taal verander:
+	•	Menu titles/labels update onmiddellik
+	•	Settings panel labels update onmiddellik
+	•	Prompt panel labels update onmiddellik
+	•	Overlay context menu update onmiddellik
+
+8.3 Translation coverage
+	•	Alle user-facing strings:
+	•	menu items
+	•	panel titles
+	•	button labels
+	•	status lines (settings feedback)
+	•	alerts (clipboard errors, hotkey conflicts)
+	•	Internal keys/values (bv output_mode) bly Engels/tech (net UI teks vertaal).
 
 ⸻
 
-9. Error handling & resilience
+9. Local JSON config file (v0.5)
 
-9.1 Clipboard errors
-	•	If pasteboard write fails:
-	•	Show critical alert “Clipboard error”
-	•	App should remain running
+9.1 Export
+	•	App kan alle settings/defaults skryf na ’n JSON file.
+	•	JSON bevat net settings (geen prompt history).
+	•	Skryf aksie moet óf:
+	•	bestaande file overwrite (simple), óf
+	•	write-atomic (preferred) — detail in TS.
 
-9.2 Optional framework absence
-	•	Carbon missing → hotkey features disabled gracefully:
-	•	menu bar still works
-	•	settings panel shows meaningful status
-	•	UserNotifications missing → no notifications, no crash
+9.2 Import at startup
+	•	By app start:
+	•	As config file bestaan → lees → apply settings → UI refresh.
+	•	As file ontbreek of corrupt → ignore en gebruik defaults; app moet nie crash nie.
 
-9.3 Settings corruption
-	•	On invalid / missing defaults:
-	•	fall back to sane defaults
-	•	app continues
-
-⸻
-
-10. Privacy & security
-	•	No network.
-	•	No logging of prompt content to disk (buiten NSUserDefaults metadata).
-	•	Clipboard contains the generated entry (expected).
-	•	App doesn’t store prompt history (v0.4).
+9.3 Manual import/apply
+	•	Vanuit Settings: “Lees config van JSON” apply onmiddellik, sonder restart.
 
 ⸻
 
-11. Performance requirements
-	•	“Generate & copy” should feel instant (< 100ms typical).
-	•	UI should open within 200ms typical (prompt panel/settings).
+10. Error handling & resilience
+	•	Clipboard write fail → NSAlert + app bly run.
+	•	Optional frameworks missing → degrade gracefully.
+	•	Config file invalid → ignore + warning status (non-fatal).
 
 ⸻
 
-12. Compatibility
-	•	Python 3.12 compatible.
-	•	macOS 26 target (best-effort downwards).
-	•	PyObjC required; py2app used for packaging.
+11. Privacy & security
+	•	Geen netwerk.
+	•	Geen storing van prompt content (behalwe clipboard).
+	•	Config file bevat slegs settings.
+
+⸻
+
+12. Performance
+	•	Generate+copy voel instant.
+	•	Language switch moet onmiddellik UI refresh.
 
 ⸻
 
 13. Deliverables (repo artifacts)
-	•	src/clipboard_json_logger.py single-file, class-based modular codebase
+	•	src/clipboard_json_logger.py single-file, class-based
 	•	README.md recruiter-proof
-	•	CHANGELOG.md with incremental versions
+	•	CHANGELOG.md incremental
 	•	setup.py (py2app)
 	•	LICENSE (MIT)
 
 ⸻
 
-14. Acceptance criteria (v0.4)
-	1.	Menu bar app runs; “Generate Entry” copies output to clipboard.
-	2.	Output includes id/role/prompt/datumtijd.
-	3.	Modus A default output matches loose diary style.
-	4.	Modus B produces valid JSON (pretty toggle works).
-	5.	Role toggle persists.
-	6.	Hotkey works when Carbon available; capture UI can set a new hotkey.
-	7.	Notifications policy works; “hotkey_only” only notifies on hotkey.
-	8.	Prompt panel accepts multiline prompt and copies correctly.
-	9.	Overlay bubble can be enabled/disabled from menu.
-	10.	Overlay bubble drag persists position; restores on relaunch.
-	11.	Overlay click action works (blank generate OR prompt panel).
-	12.	Overlay show-all-spaces and hide-in-fullscreen toggles apply.
+14. Acceptance criteria (v0.5)
+	1.	Role submenu het 3 opsies: user/system/User + system.
+	2.	“User + system” genereer 2 entries met dieselfde id en datumtijd.
+	3.	UI taal is Afrikaans by default.
+	4.	Taal kan verander sonder app restart; alle UI teks update.
+	5.	Export settings na JSON werk; file word geskryf.
+	6.	Import by startup pas settings toe (as file bestaan).
+	7.	Manual import/apply in Settings werk sonder restart.
+	8.	Alle v0.4 funksies bly werk (hotkey, notifications, overlay, prompt panel).
 
 ⸻
 
-15. Roadmap (ideas beyond v0.4)
-	•	v0.5: overlay snap-to-edge + opacity/size sliders
-	•	v0.5: auto-start at login toggle
-	•	v0.6: entry templates (custom fields) / additional roles
-	•	v0.6: “copy + auto-paste” optional (dangerous; needs guardrails)
-	•	v0.7: history list (last N entries) + quick re-copy
+15. Roadmap (behou + uitbrei)
+	•	v0.6: overlay snap-to-edge + opacity/size sliders
+	•	v0.6: auto-start at login
+	•	v0.7: entry templates/presets (meer as net settings)
+	•	v0.7: history (last N entries) + re-copy
 
 ⸻
 
-16. Development cycle rules (process)
+# 16. Development cycle rules (process)
 
-Vanaf nou word die ontwikkelsiklus as volg hanteer:
+## Ontwikkelsiklus:
 	1.	FS → FS review
 	2.	Build plan → build plan review
 	3.	TS bywerk met nuwe funksies
@@ -345,14 +377,13 @@ Vanaf nou word die ontwikkelsiklus as volg hanteer:
 	5.	TS review
 	6.	Code bou (commit-ready)
 
-By elke stap moet die user die opsie kry om:
-	•	direk na code generation te spring, en
-	•	later terug te keer na die siklus-stap waar hy was.
-
----
+### By elke stap kan jy:
+	•	direk na code generation spring, en
+	•	later terugkeer na die stap waar jy was.
 
 ## Volgende opsies (kies net ’n nommer)
-1) **Build plan v0.4** skryf (stap-vir-stap + smoke tests + release checklist)  
-2) **TS v0.4** skryf (tegniese detail vir overlay: window behaviors, persistence, menu wiring, edge cases)  
-3) **Direk na code patching**: ek gee ’n klein v0.4.1 patch vir tipiese overlay issues (fullscreen/spaces quirks, right-click position, sizing)  
-4) **App verbeter idees**: kies 1 verbeterpunt (snap-to-edge / auto-start / opacity slider / size slider / template fields) en ek werk FS+TS daarvoor uit
+1) **Build plan v0.5** (incl config import/export + runtime i18n + UserAndSystem output)  
+2) **TS v0.5** skryf (tegniese detail: runtime string refresh, config path strategy, output concatenation rules)  
+3) **Direk na code**: commit-ready blokke vir v0.5 (Python + README + setup.py + CHANGELOG updates)  
+4) **Verbeterings**: kies 1 fokus (snap-to-edge / auto-start at login / overlay opacity / templates) en ek werk FS+TS addendum uit
+

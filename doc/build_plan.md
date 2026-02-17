@@ -435,9 +435,300 @@ Toets: overlay klik → geen notif onder hotkey_only; wel notif onder all.
 
 ## 9) Release checklist (0.4.0)
 
-```	•	APP_VERSION, setup.py, CHANGELOG.md consistent
+```
+	•	APP_VERSION, setup.py, CHANGELOG.md consistent
 	•	README overlay usage + toggles
 	•	No crashes if Carbon/UN frameworks absent
 	•	Overlay disabled by default (veilig)
 	•	Manual smoke test done
+```
+
+# Build Plan — Clipboard JSON Logger v0.5.0
+**Date:** 2026-02-18  
+**Implements:** FS v0.5.0 (User+system role, Afrikaans default + runtime language switch, JSON config export/import + apply at startup)  
+**Packaging:** py2app  
+**Code style:** single-file app module, class-based, modular
+
+---
+
+## 0) Definition of Done (v0.5.0)
+Release is “done” when:
+1. Role menu has **user / system / User + system**
+2. **User + system** generates **two blocks** with **same id** + same datumtijd; copied to clipboard separated by a blank line
+3. UI default language is **Afrikaans**
+4. Language can change **without app restart** (menus + panels update immediately)
+5. Settings can be exported to a local JSON config file
+6. App startup loads config file (if present) and applies settings
+7. All existing v0.4 features still work (prompt panel, overlay, notifications policy, hotkey capture/apply)
+
+---
+
+## 1) Repo assumptions (current structure)
+Recommended minimal structure:
+- `src/clipboard_json_logger.py`
+- `README.md`
+- `CHANGELOG.md`
+- `setup.py`
+- `LICENSE`
+
+If your repo differs, we adapt paths, but keep code in **one** file.
+
+---
+
+## 2) Dependencies / environment
+### 2.1 Python & venv
+- Python 3.12
+- venv activated (you already have this)
+
+### 2.2 Python packages
+Minimum:
+- `pyobjc`
+- `py2app`
+Optional/best-effort:
+- `pyobjc-framework-UserNotifications` (often already included via pyobjc meta-package)
+
+Install/update:
+```bash
+python -m pip install -U pip
+python -m pip install -U pyobjc py2app
+# optional (only if you find missing UserNotifications module):
+python -m pip install -U pyobjc-framework-UserNotifications
+
+
+⸻
+
+3) Config file strategy (v0.5.0)
+
+3.1 Path (fixed default for v0.5.0)
+
+Use a deterministic per-user path:
+
+~/Library/Application Support/Clipboard JSON Logger/config.json
+
+Reason: stable, normal macOS location, no UI file picker required.
+
+3.2 Behavior
+	•	On startup:
+	•	If config exists: read JSON → apply settings → refresh UI
+	•	If invalid: ignore + keep defaults; do not crash
+	•	Export:
+	•	“Write config to JSON” overwrites file (atomic write preferred)
+	•	Manual import/apply:
+	•	“Read config from JSON” reads file and applies immediately (no restart)
+
+⸻
+
+4) Implementation tasks (ordered)
+
+Task A — Bump version metadata + changelog scaffolding
+	1.	Set APP_VERSION = "0.5.0" in code (and build date)
+	2.	Add new section to CHANGELOG.md for v0.5.0:
+	•	Added: User + system role
+	•	Added: Afrikaans default UI + runtime language switch
+	•	Added: JSON config export/import + apply on startup
+
+Checkpoint A: running app still launches and copies entries (existing features not broken).
+
+⸻
+
+Task B — Add UserAndSystem role end-to-end
+
+Goal: A role choice that yields two entries sharing same id+datumtijd.
+	1.	Update role domain:
+	•	FS says role includes "UserAndSystem" as selection value.
+	2.	Update settings:
+	•	default_role can now be "user" | "system" | "UserAndSystem"
+	3.	Update UI role menu:
+	•	Add menu item “User + system”
+	•	Checkmark logic includes third option
+	4.	Update prompt panel role dropdown:
+	•	Add “User + system”
+	5.	Update entry generation logic:
+	•	Replace _make_entry(role, prompt) with something like _make_entries(role_selection, prompt) returning a list.
+	•	If role_selection == "UserAndSystem":
+	•	Generate shared_id once
+	•	Generate datumtijd once
+	•	Create two EntryModels:
+	•	role "user"
+	•	role "system"
+	•	Same prompt for both
+	6.	Update formatter/clipboard output:
+	•	Format each entry using selected output mode
+	•	Join blocks with "\n\n" (blank line)
+	•	Copy joined text to clipboard
+
+Checkpoint B (manual tests):
+	•	Select “User + system” → Generate Entry → paste:
+	•	two blocks
+	•	same id in both
+	•	same datumtijd in both
+	•	Works for Mode A and Mode B.
+
+⸻
+
+Task C — Internationalization (i18n) with runtime switching
+
+Goal: Afrikaans default UI text; language switch updates UI immediately.
+	1.	Add new setting:
+	•	ui_language: e.g. "af" | "nl" | "en" (store code, not full name)
+	2.	Build a string table in code:
+	•	A dict: STRINGS = {"af": {...}, "nl": {...}, "en": {...}}
+	•	Keys for every user-facing string:
+	•	Menu titles, submenu titles, panel titles, buttons, alerts, status lines
+	3.	Add helper function:
+	•	t(key) -> str returns string based on current language
+	4.	Update menu build to use t(...):
+	•	When language changes, you must update existing menu items titles (not just rebuild on next launch)
+	•	Practical approach:
+	•	Keep references to each NSMenuItem as instance vars
+	•	Provide _refresh_ui_texts() that sets each setTitle_() accordingly
+	5.	Update Prompt panel UI texts:
+	•	Add method on PromptPanelController: refresh_texts(lang) that updates:
+	•	panel title
+	•	labels/buttons
+	6.	Update Settings panel UI texts:
+	•	Add language dropdown:
+	•	Afrikaans / Nederlands / English (display names localized too)
+	•	On change:
+	•	persist ui_language
+	•	call app controller to refresh UI texts
+	7.	Default language:
+	•	Ensure defaults seed ui_language = "af" unless config overrides
+
+Checkpoint C:
+	•	Change language while app is running:
+	•	menu text updates immediately
+	•	settings + prompt panel labels update immediately (if open, they update too)
+	•	no restart required
+
+⸻
+
+Task D — JSON config export/import + startup apply
+
+Goal: Write defaults/settings to JSON; read on startup and apply; manual apply via Settings.
+	1.	Add Config service:
+	•	ConfigFileService with:
+	•	config_path()
+	•	export_config(app_config) -> (ok, err)
+	•	import_config() -> dict | None
+	•	apply_config(app_config, dict) -> (ok, err, warnings[])
+	2.	Define JSON schema (v0.5 minimal):
+	•	Only known keys, e.g.:
+	•	default_role, id_strategy, output_mode, json_pretty,
+notifications_mode, hotkey_enabled, hotkey_keycode, hotkey_modifiers,
+overlay_enabled, overlay_click_action, overlay_show_all_spaces, overlay_hide_in_fullscreen,
+overlay_pos_x, overlay_pos_y, overlay_screen_hint,
+ui_language
+	3.	Export:
+	•	Write JSON pretty (indent=2) for readability
+	•	Use atomic write:
+	•	write to config.json.tmp then replace
+	4.	Import at startup:
+	•	In applicationDidFinishLaunching_:
+	•	call ConfigFileService.import_config()
+	•	if dict: apply to AppConfig setters
+	•	then refresh:
+	•	menu states
+	•	UI texts
+	•	hotkey registration (if enabled)
+	•	overlay show/hide + behavior update
+	5.	Manual export/import actions in Settings:
+	•	Add two buttons:
+	•	“Skryf config na JSON”
+	•	“Lees config van JSON”
+	•	On click: run export/import + show status label result
+
+Checkpoint D:
+	•	Export creates file at path
+	•	Edit file manually (e.g. change language) → restart app → applied
+	•	Manual import apply updates live without restart
+
+⸻
+
+Task E — Overlay updates (ensure it respects new features)
+	1.	Overlay context menu strings go through t(...)
+	2.	Overlay role behavior respects User+system (it already calls generate function; ensure it uses role selection)
+	3.	Overlay click-action respects language (menu titles) and still works
+
+Checkpoint E:
+	•	Overlay enabled: right-click menu shows in selected language
+	•	Clicking overlay generates correct output for User+system
+
+⸻
+
+%5) QA checklist (smoke tests)
+
+Run these before tagging v0.5.0:
+```
+	1.	Clipboard
+	•	Generate Entry copies something; paste matches expected format
+	2.	Mode A / Mode B
+	•	Mode A output remains “loose diary”
+	•	Mode B output validates as JSON per block
+	3.	User + system
+	•	Two blocks, same id, same datumtijd
+	4.	Prompt panel
+	•	Multiline text preserved in both modes
+	5.	Notifications policy
+	•	Off / Hotkey only / All behaves as defined
+	6.	Hotkey
+	•	Works if Carbon available; capture + apply works; conflict handled
+	7.	Language
+	•	Default Afrikaans
+	•	Switch to NL/EN updates menu + open panels immediately
+	8.	Config file
+	•	Export writes file
+	•	Import at startup applies
+	•	Manual import applies live
+	9.	Overlay
+	•	Enable/disable; drag persists; click works; context menu localized
+```
+⸻
+
+6) Packaging & release steps (py2app)
+	1.	Bump version references:
+	•	code APP_VERSION
+	•	setup.py plist CFBundleShortVersionString (if present)
+	2.	Build:
+
+
+```bash
+python setup.py py2app
+```
+	3.	Run app from dist/ and repeat critical smoke tests (hotkey/notifications sometimes differ vs running from python).
+	4.	Tag + release:
+
+```bash
+git add -A
+git commit -m "v0.5.0: User+system role, Afrikaans UI + runtime language switch, JSON config export/import"
+git tag v0.5.0
+git push --tags
+git push
+```
+
+⸻
+
+# 7) Work breakdown into commits (recommended)
+	•	Commit 1: version bump + changelog skeleton
+	•	Commit 2: User + system role end-to-end
+	•	Commit 3: i18n runtime switching + Afrikaans default
+	•	Commit 4: config export/import + startup apply
+	•	Commit 5: overlay localization + final polish
+
+⸻
+
+8) Risks & mitigations
+	•	Spaces/fullscreen overlay quirks: treat as best-effort; clamp and keep toggles.
+	•	Language refresh complexity: keep UI item references; implement one refresh function called everywhere.
+	•	Config drift: apply only known keys; ignore unknown keys with warnings (display in settings status).
+
+⸻
+
+
+## Volgende opsies (kies net ’n nommer)
+
+```1) **Build plan review checklist**: ek skryf ’n kort “afmerklys” wat jy kan volg terwyl jy implementeer (super prakties)  
+2) **TS v0.5.0**: volledige tegniese spesifikasie vir alles in hierdie build plan (incl i18n + config schema + UI refresh strategy)  
+3) **Direk na code**: ek genereer commit-ready blokke vir v0.5.0 (updated `clipboard_json_logger.py` + README + setup.py + CHANGELOG)  
+4) **Een fokus-verbetering**: snap-to-edge of auto-start-at-login as add-on (FS/TS addendum)
 ```

@@ -1,68 +1,65 @@
-# Changelog
+# Changelog — Clipboard JSON Logger
 
-### Notes
-- Prompt input is single-line in the MVP dialog; multi-line prompt UI planned.
+All notable changes to this project will be documented in this file.
 
-## [0.1.0] - 2026-02-11
+## [0.5.0] — 2026-02-18
 ### Added
-- macOS menu bar app (PyObjC)
-- Generate Entry → clipboard
-- Generate with Prompt… (single-line)
-- Role selection (user/system)
-- ID strategies: short_id (default), uuid4
-- datumtijd in YYYYMMDD
-- Best-effort global hotkey (Carbon where available)
-
-
-## [0.2.0] - 2026-02-11
-### Added
-- Output Mode toggle in the menu:
-  - Mode A: Loose diary format (default)
-  - Mode B: Strict JSON (valid JSON)
-- Strict JSON formatter (pretty-printed JSON)
+- Role option **User + system**: generates **two blocks** with the **same `id`** + `datumtijd` and copies both to clipboard (blank line separator).
+- UI language support:
+  - Default language **Afrikaans**
+  - Runtime language switching (no restart) for menu + panels.
+- Local JSON config file:
+  - Export settings to `~/Library/Application Support/Clipboard JSON Logger/config.json`
+  - Import/apply on startup and via Settings panel.
 
 ### Changed
-- Internal version bump from initial MVP
-
-
-## [0.4.0] - 2026-02-18
-### Added
-- Overlay Bubble (Floating Button):
-  - Always-on-top floating bubble window
-  - Draggable with persisted position
-  - Click action configurable: Generate blank / Open prompt panel
-  - Right-click context menu for core actions
-  - Show on all Spaces (default ON)
-  - Hide in fullscreen (default ON)
-
-### Changed
-- Notifications source now includes `overlay` triggers; policy unchanged (all / hotkey_only / off).
-
-## [0.3.1] - 2026-02-18
-### Fixed
-- Import collision hardening: prefer `Cocoa` for `NSObject/NSUserDefaults/NSLog`, fallback to `Foundation`.
-- Version consistency hygiene.
-
-## [0.3.0] - (retro)
-### Added
-- Multiline prompt panel (NSPanel + NSTextView) + role override.
-- Notifications (UserNotifications) best-effort, with policy: all / hotkey_only / off.
-- Global hotkey (Carbon) best-effort:
-  - Enable/disable, default Ctrl+Opt+Cmd+J
-- Settings panel:
-  - Hotkey capture/apply/reset
-  - Notifications selector
-  - Pretty JSON toggle (Mode B)
-  - Status feedback line
-- Menu items for Settings + Notifications + Hotkey toggle.
+- Internal entry generation now supports multi-block output.
+- UI text is now driven by an i18n string table.
 
 ### Fixed
-- Graceful degradation when Carbon/UserNotifications are unavailable.
+- More defensive startup behavior: config load failures do not crash the app.
 
-## [0.2.0] - (retro)
+---
+
+## [0.4.0] — 2026-02-18
 ### Added
-- Mode A (loose diary) output as default.
-- Mode B (strict JSON) toggle + pretty JSON option.
-- Role selection (user/system) persisted via NSUserDefaults.
-- ID strategy: short_id (default) or uuid4.
-- datumtijd as YYYYMMDD (timezone-aware best-effort).
+- Overlay Bubble (floating button):
+  - enable/disable
+  - draggable + position persistence
+  - always-on-top
+  - click action: generate blank OR open prompt panel
+  - right-click context menu
+  - show on all Spaces toggle
+  - hide in fullscreen toggle (best-effort)
+
+---
+
+## [0.3.1] — 2026-02-18
+### Fixed
+- Avoid `Foundation` import collisions by preferring `Cocoa` import with fallback.
+- General stability improvements for PyObjC environments.
+
+---
+
+## [0.3.0] — 2026-02-18
+### Added
+- Multiline prompt panel (NSPanel + NSTextView).
+- Notifications (best-effort UserNotifications) with policy: All / Hotkey only / Off.
+- Settings panel: hotkey capture + apply, notifications mode, pretty JSON toggle.
+- Global hotkey (best-effort Carbon).
+
+---
+
+## [0.2.0] — 2026-02-17
+### Added
+- Mode A: loose diary output (default).
+- Mode B: strict JSON output (toggle).
+- Role selection (user/system).
+- ID generation strategies (short_id / uuid4).
+- datumtijd generation (YYYYMMDD).
+
+---
+
+## [0.1.0] — 2026-02-17
+### Added
+- Initial prototype: generate entry and copy to clipboard from a minimal UI entry point.
