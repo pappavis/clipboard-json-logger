@@ -1,276 +1,551 @@
-# Tegniese Spesifikasie (TS) — Clipboard JSON Logger
-
-Weergawe: v0.1.0
-Datum: 11 Februarie 2026
-Teikenplatform (MVP): macOS 26
-Taal: Python 3.x + PyObjC
-Uitsetmodus (MVP): Modus A (loose/dagboek-formaat)
-Latere uitbreiding: Modus B (strict JSON)
+Ik ga dit doen, maar eerst eerlijk over de sanity-check: ik kan jouw “TS v0.3” niet letterlijk teruglezen als apart document, omdat die niet als volledige TS in deze chat staat. Wat ik wél kan doen (en ga doen) is:
+	•	Stap 1 sanity-check tegen alles wat hier als v0.3/v0.3.1 functionaliteit al zichtbaar is (jouw code + requirements), plus wat ik net als TS v0.4 heb geschreven.
+	•	Daarna herschrijf ik de volledige TS v0.4 inclusief overlay.
+	•	En ik lever een volledig CHANGELOG vanaf v0.2 (v0.2 → v0.3 → v0.3.1 → v0.4.0), en check opnieuw dat niks uit stap 1 ontbreekt.
 
 ⸻
 
-0) Doel en beginsels
+1) Sanity-check basis: alle functionaliteiten die behouden moeten blijven
 
-Bou ’n menu bar app wat:
-	•	altyd beskikbaar is,
-	•	1 klik / hotkey → genereer entry → kopieer na klembord,
-	•	minimal UI, maksimum spoed,
-	•	class-based, modulêr, verkieslik alles in 1 lêer vir maklike hergebruik.
+Uit v0.2 (afgeleid uit requirements + code)
+	•	Mode A (loose diary) default output, met triple quotes prompt en trailing },
+	•	Mode B (strict JSON) toggle, valid JSON output
+	•	JSON pretty toggle (Mode B)
+	•	Role: user/system, default role setting + menu switch
+	•	ID strategy: short_id (default) of uuid4
+	•	datumtijd: YYYYMMDD (timezone Europe/Amsterdam via zoneinfo indien beskikbaar)
+	•	Clipboard copy service
+	•	Menu bar app (status item + menu)
 
-⸻
+Uit v0.3 / v0.3.1 (afgeleid uit code + requirements)
+	•	Multiline prompt panel (NSPanel + NSTextView) + role dropdown
+	•	Notifications (UserNotifications) best-effort
+	•	policy all / hotkey_only / off
+	•	permission request best-effort
+	•	Global hotkey best-effort via Carbon
+	•	enable/disable
+	•	default Ctrl+Opt+Cmd+J
+	•	hotkey capture UI + apply + reset
+	•	conflict/unavailable degrade gracefully
+	•	Settings panel
+	•	hotkey enabled switch
+	•	hotkey capture
+	•	reset
+	•	notifications mode dropdown
+	•	pretty JSON toggle
+	•	status line feedback
+	•	Menu items voor role/mode/notifs/settings/hotkey toggle
+	•	Fix voor Foundation import collision: prefer Cocoa / fallback Foundation (v0.3.1 bugfix)
 
-1) Tegnologie-keuse
+Nieuw v0.4
+	•	Overlay Bubble (floating button)
+	•	enable/disable
+	•	draggable + position persistence + screen clamp
+	•	click action configurable (generate_blank / open_prompt_panel)
+	•	right-click context menu
+	•	show on all spaces (default ON)
+	•	hide in fullscreen (default ON)
+	•	no polling
 
-1.1 Core stack
-	•	Python 3.x
-	•	PyObjC om native macOS API’s te gebruik:
-	•	Menu bar item: NSStatusBar / NSStatusItem
-	•	Clipboard: NSPasteboard
-	•	Settings: NSUserDefaults (of ’n klein JSON config op disk—maar default is NSUserDefaults)
-
-1.2 Globale hotkey
-
-Ons bind ’n globale hotkey via Carbon se hotkey API, beskikbaar in PyObjC se Carbon bindings.  ￼
-
-Prakties:
-	•	RegisterEventHotKey() / UnregisterEventHotKey()
-	•	InstallApplicationEventHandler() vir event callback
-	•	Hotkey trigger roep dieselfde “Generate Entry” aksie as die menu item.
-
-(Alternatief later: ’n klein third-party binding soos quickmachotkey, maar MVP kan net PyObjC+Carbon doen.)  ￼
-
-1.3 Packaging
-	•	Dev-run: python app.py
-	•	Build .app: py2app (klassieke pad vir PyObjC apps). PyObjC docs verwys steeds na py2app in tutorial konteks.  ￼
-
-⸻
-
-2) Hoëvlak-argitektuur
-
-Een lêer (bv. clipboard_json_logger.py) met duidelike afdelings:
-	1.	AppConfig (defaults + load/save)
-	2.	EntryFormatter (Modus A generator)
-	3.	IdService (uuid4 of short_id)
-	4.	DateTimeService (YYYYMMDD)
-	5.	ClipboardService (NSPasteboard write)
-	6.	HotkeyService (Carbon register/unregister)
-	7.	MenuBarUI (NSStatusBar menu)
-	8.	AppController (orkestreer vloei, state, errors)
-	9.	main() bootstrap + version banner
-
-Belangrike beginsel: UI triggers roep altyd dieselfde controller-metode:
-	•	AppController.generate_entry(copy_to_clipboard=True, with_prompt=None|str, role_override=None|str)
+✅ Dit is die “must keep” set. Hieronder komt de herschreven TS v0.4 die alles omvat.
 
 ⸻
 
-3) Datamodel en formate
+TS v0.4 — Clipboard JSON Logger (Menu Bar + Overlay Bubble)
 
-3.1 Interne model (Python)
+App: Clipboard JSON Logger
+Release target: 0.4.0
+Platform: macOS (menu bar utility)
+Stack: Python 3.12 + PyObjC + py2app
+Repo style: single-file app code (src), modular class-based
 
-Gebruik ’n eenvoudige dataclass of plain class:
+0) Doel
 
-EntryModel velde:
+’n macOS menu bar app wat “chatlog entry” outputs genereer (Mode A of Mode B) en na clipboard kopieer, met optionele prompt panel, notifications, hotkey, en nou ook ’n always-on-top overlay bubble vir 1-click logging.
+
+⸻
+
+1) Data model & output formats
+
+1.1 EntryModel
+
+Fields:
 	•	id: str
-	•	role: str  (user / system / later assistant)
-	•	prompt: str
+	•	role: str ("user" of "system")
+	•	prompt: str (kan multiline wees)
 	•	datumtijd: str (YYYYMMDD)
 
-3.2 Uitset (MVP): Modus A (loose)
+1.2 Mode A — Loose diary format (default)
 
-EntryFormatter.format_loose(entry: EntryModel) -> str gee ’n string wat jou dagboekstyl volg.
+Output is nie strict JSON nie. Dit moet visueel soos jou dagboek entry lyk.
 
-Normatief (MVP):
-	•	Die output moet lyk soos:
-	•	{'id': '...', role: 'system', prompt: """\n... \n""",\ndatumtijd: "YYYYMMDD"\n"""\n},
-	•	Prompt in Modus A word altyd as “triple quote blok” uitgeskryf (selfs al is dit leeg), sodat jy altyd dieselfde struktuur het.
+Format:
+	•	single entry string
+	•	triple quotes vir prompt
+	•	datumtijd: "YYYYMMDD"
+	•	trailing },
 
-3.3 Modus B (later)
+Voorbeeld:
 
-Hou plek in code/TS vir:
-	•	EntryFormatter.format_strict_json(entry) -> str (valide JSON)
-	•	Setting flag output_mode = loose_diary | strict_json
+{'id': 'abc123xyz', role: 'system', prompt: """
+Hallo
+multi-line
+"""
+,
+datumtijd: "20260214"
+},
 
-⸻
+1.3 Mode B — Strict JSON (toggle)
 
-4) Konfigurasie & state
+Valid JSON string:
 
-4.1 Stoorplek
+{
+  "id": "…",
+  "role": "user",
+  "prompt": "…",
+  "datumtijd": "YYYYMMDD"
+}
 
-Gebruik NSUserDefaults (deur Foundation.NSUserDefaults), sodat settings “net werk” sonder files.
-
-4.2 Settings keys (NSUserDefaults)
-	•	default_role: "user" (default)
-	•	id_strategy: "short_id" of "uuid4"
-	•	datumtijd_strategy: "date_yyyymmdd"
-	•	output_mode: "loose_diary" (MVP) / "strict_json" (later)
-	•	hotkey_enabled: true/false
-	•	hotkey_keycode: int (virtual key code, bv. kVK_ANSI_J)
-	•	hotkey_modifiers: int mask (cmd/ctrl/opt/shift)
-
-4.3 Startup defaults
-
-As geen defaults bestaan nie, stel:
-	•	role = user
-	•	id_strategy = short_id
-	•	output_mode = loose_diary
-	•	hotkey_enabled = true
-	•	hotkey default combo: bv. ⌃⌥⌘J (kan jy later verander)
+Pretty option:
+	•	json_pretty=True → indent=2
+	•	False → compact separators (",", ":")
 
 ⸻
 
-5) Dienste en implementasie-detail
+2) Config & persistence (NSUserDefaults)
 
-5.1 ClipboardService
-	•	Gebruik NSPasteboard.generalPasteboard()
-	•	Clear + set string type (text)
-	•	Foutafhandeling: as write fail → exception → UI notification/toast.
+2.1 Keys (existing)
+	•	K_DEFAULT_ROLE = "default_role" (default "user")
+	•	K_ID_STRATEGY = "id_strategy" ("short_id" default | "uuid4")
+	•	K_OUTPUT_MODE = "output_mode" ("loose_diary" default | "strict_json")
+	•	K_DATUMTIJD_STRATEGY = "datumtijd_strategy" ("date_yyyymmdd" default)
+	•	K_HOTKEY_ENABLED = "hotkey_enabled" (default True)
+	•	K_HOTKEY_KEYCODE = "hotkey_keycode" (default J keycode)
+	•	K_HOTKEY_MODIFIERS = "hotkey_modifiers" (default ctrl+opt+cmd)
+	•	K_NOTIFICATIONS_MODE = "notifications_mode" ("hotkey_only" default | "all" | "off")
+	•	K_JSON_PRETTY = "json_pretty" (default True)
 
-Verwysingspunt: PyObjC NSPasteboard setString/declareTypes is standaard patroon.  ￼
+2.2 Keys (new v0.4 overlay)
+	•	K_OVERLAY_ENABLED = "overlay_enabled" (default False)
+	•	K_OVERLAY_CLICK_ACTION = "overlay_click_action"
+	•	"generate_blank" default
+	•	"open_prompt_panel"
+	•	K_OVERLAY_SHOW_ALL_SPACES = "overlay_show_all_spaces" (default True)
+	•	K_OVERLAY_HIDE_IN_FULLSCREEN = "overlay_hide_in_fullscreen" (default True)
+	•	K_OVERLAY_POS_X = "overlay_pos_x" (float; optional)
+	•	K_OVERLAY_POS_Y = "overlay_pos_y" (float; optional)
+	•	K_OVERLAY_SCREEN_INDEX = "overlay_screen_index" (int; optional)
 
-5.2 IdService
-
-short_id
-	•	Lengte: default 9 (kan 8–10 wees)
-	•	Charset: abcdefghijklmnopqrstuvwxyz0123456789
-	•	Generator:
-	•	secrets.choice(chars) in loop
-	•	Opsioneel collision-check: nie nodig vir jou dagboek, maar kan (later) ’n “recent id cache” byhou.
-
-uuid4
-	•	uuid.uuid4() string.
-
-5.3 DateTimeService
-	•	datumtijd = datetime.now(ZoneInfo("Europe/Amsterdam")).strftime("%Y%m%d")
-	•	As ZoneInfo nie beskikbaar/issue: fallback datetime.now().strftime("%Y%m%d") (maar macOS 26 + Python 3.9+ behoort ZoneInfo te hê).
-
-5.4 HotkeyService (Carbon)
-	•	Register hotkey by app launch (as enabled)
-	•	Unregister by exit/disable
-	•	Callback roep AppController.generate_entry() (vloei A)
-
-PyObjC Carbon API notes bevestig RegisterEventHotKey beskikbaar.  ￼
-PyObjC changelog noem ook ’n HotKeyPython voorbeeld met Carbon hotkeys in AppKit context.  ￼
+2.3 AppConfig behavior
+	•	AppConfig._ensure_defaults() sets sane defaults (above).
+	•	Provide getters/setters for all keys.
+	•	Overlay position:
+	•	getter returns None if missing
+	•	setter stores x,y and optional screen index
 
 ⸻
 
-6) UI ontwerp (Menu bar)
+3) Services / modules
 
-6.1 NSStatusItem
-	•	NSStatusBar.systemStatusBar().statusItemWithLength_(...)
-	•	Set title of icon (bv. {"} of ’n klein glyph) — minimal.
+3.1 IdService
+	•	Strategy "short_id":
+	•	alphabet: [a-z0-9]
+	•	default length 9 (clamped 6..32)
+	•	Strategy "uuid4":
+	•	uuid.uuid4() string
 
-6.2 Menu items en handlers
+3.2 DateTimeService
+	•	Default timezone: "Europe/Amsterdam"
+	•	Use zoneinfo.ZoneInfo if available, else local time.
+	•	Format: %Y%m%d
 
-Menu:
+3.3 EntryFormatter
+	•	format_loose_diary(entry) returns Mode A string (as per spec).
+	•	format_strict_json(entry, pretty) returns valid JSON.
+
+3.4 ClipboardService
+	•	Writes string to general pasteboard.
+	•	Raises RuntimeError on failure; caller shows NSAlert.
+
+3.5 NotificationService (best-effort)
+	•	If UserNotifications framework missing or fails: no crash.
+	•	ensure_permission() request authorization (async).
+	•	notify_copied(title, body) sends immediate notification (no trigger).
+	•	Policy enforcement happens in AppController:
+	•	off → no notifications
+	•	hotkey_only → only source "hotkey"
+	•	all → notify for menu/overlay/hotkey
+
+3.6 HotkeyService (best-effort Carbon)
+	•	If Carbon missing: return False, app continues without hotkey.
+	•	Register RegisterEventHotKey with keycode/modifiers.
+	•	Handler calls callback safely.
+	•	Start/stop lifecycle (stop on terminate).
+
+3.7 Import collision hardening (v0.3.1 bugfix must stay)
+
+Always import NSObject/NSUserDefaults/NSLog via Cocoa first:
+
+try:
+    from Cocoa import NSObject, NSUserDefaults, NSLog
+except Exception:
+    from Foundation import NSObject, NSUserDefaults, NSLog
+
+
+⸻
+
+4) UI Components
+
+4.1 Menu Bar UI (existing)
+
+Status item: { }
+
+Menu items:
 	•	Generate Entry
 	•	Generate with Prompt…
-	•	Separator
-	•	Role → radio items (user/system/(later assistant))
-	•	Settings… (MVP kan eenvoudige dialog wees of “sub-menu” vir toggles)
+	•	Role submenu: user/system (checkmarks)
+	•	Output Mode submenu: Mode A / Mode B (checkmarks)
+	•	Notifications submenu: All / Hotkey only / Off (checkmarks)
+	•	Settings…
+	•	Hotkey Enabled (checkbox)
 	•	Quit
 
-6.3 Prompt popup (MVP)
-
-Eenvoudigste implementasie:
-	•	NSAlert met accessory NSTextField (multi-line is meer moeite; vir MVP kan single-line of small text view)
-	•	Buttons: Copy / Cancel
-	•	On Copy: generate entry met prompt teks.
-
-(As jy multi-line prompt-invoer wil van dag 1 af: gebruik NSPanel + NSTextView.)
+State refresh method updates all checkmarks.
 
 ⸻
 
-7) Logging & Debug
+4.2 Prompt Panel (existing v0.3)
 
-7.1 Runtime debug
-	•	Logger met levels: INFO/WARN/ERROR
-	•	Default: INFO
-	•	Logs na stdout (dev). In .app kan dit in Console app beland.
-	•	Elke generate aksie log:
-	•	role, id_strategy, datumtijd, output_mode
+NSPanel with:
+	•	Role popup (user/system)
+	•	NSTextView multiline prompt
+	•	Copy Entry button
+	•	Cancel button
 
-7.2 Version banner
-
-Boonste konstantes:
-	•	APP_NAME
-	•	APP_VERSION
-	•	APP_BUILD_DATE
+Callback contract:
+	•	On copy → returns (role, prompt)
+	•	On cancel → returns (None, None) no action
 
 ⸻
 
-8) Foutscenario’s en hantering
-	•	Clipboard write fail → toon NSAlert “Clipboard error – try again”
-	•	Hotkey register fail (konflik/permission) → disable hotkey en waarsku: “Hotkey conflict – change shortcut”
-	•	Unexpected exception → toon generiese fout + log stack trace (dev)
+4.3 Settings Panel (existing v0.3)
+
+Settings UI:
+	•	Hotkey Enabled switch
+	•	Hotkey display field
+	•	Capture Hotkey…
+	•	Reset hotkey
+	•	Notifications dropdown
+	•	Pretty JSON toggle
+	•	Status line
+
+Hotkey capture:
+	•	Focusable view captures next keyDown event
+	•	Requires ≥1 modifier (reject if none)
+	•	Converts NSEvent modifierFlags → Carbon masks (best-effort)
+
+Apply callback contract:
+	•	"hotkey" enable/disable: start/stop; return (ok,err)
+	•	"hotkey_candidate" validate candidate by temporary register; revert if conflict
+	•	"notifications": ensure permission if not off
+	•	"json": refresh only
 
 ⸻
 
-9) Testing (smoke test plan)
+5) Overlay Bubble UI (new v0.4)
 
-9.1 Handmatige smoke tests
-	1.	Launch app → status icon verskyn
-	2.	Click “Generate Entry” → paste in editor → format korrek
-	3.	Role toggle → generate → output role verander
-	4.	Prompt popup → generate → prompt word in triple-quote blok geplaas
-	5.	Hotkey press → clipboard updated
-	6.	Quit → app exit clean (hotkey unregistered)
+5.1 High-level
 
-9.2 Output validations
-	•	datumtijd is 8 chars en digits
-	•	id non-empty
-	•	role in allowlist
-	•	Output string bevat verwagte scaffolding (bv. {'id': en datumtijd:)
+A small always-on-top bubble window that provides fast access:
+	•	left click: generate blank OR open prompt panel (config)
+	•	right click: context menu
+	•	draggable
+	•	position persisted and clamped
+
+5.2 Classes to add
+
+OverlayBubbleController(NSObject)
+
+Responsibilities:
+	•	Create window/panel
+	•	Build bubble view/button
+	•	Apply settings:
+	•	click action
+	•	spaces behavior
+	•	fullscreen hide behavior
+	•	Show/hide/close
+	•	Persist position on drag end
+
+OverlayBubbleView(NSView) (or NSButton subclass)
+
+Responsibilities:
+	•	Handle mouseDown/mouseDragged/mouseUp for dragging
+	•	Handle rightMouseDown for context menu
+	•	Delegate click to controller callback(s)
+
+5.3 Window choice & configuration
+
+Window type
+
+Prefer NSPanel (utility) OR NSWindow borderless.
+
+Recommended for v0.4:
+	•	NSPanel created with style masks:
+	•	titled? not needed
+	•	utility? yes
+	•	borderless if possible
+	•	If borderless masks are messy in PyObjC, fallback to small titled-less panel with hidden titlebar.
+
+Always-on-top
+	•	window.setLevel_(NSFloatingWindowLevel)
+
+Transparency
+	•	window.setOpaque_(False)
+	•	background clear (use NSColor.clearColor if needed)
+	•	bubble view draws its own background
+
+5.4 Bubble appearance (minimum)
+	•	Size: 44x44 (or 48)
+	•	Rounded corners radius = size/2
+	•	Text: { } (consistent with menu bar)
+	•	Subtle alpha (optional later)
+
+5.5 Click action
+
+Config overlay_click_action:
+	•	"generate_blank":
+	•	call AppController.generate_and_copy(source="overlay")
+	•	"open_prompt_panel":
+	•	call AppController.onGenerateWithPrompt_(None) (or direct prompt controller show)
+
+5.6 Right-click context menu
+
+On right click: show menu at cursor location with:
+	•	Generate Entry
+	•	Generate with Prompt…
+	•	Output Mode → (Mode A / Mode B) OR a single “Toggle Mode”
+	•	Open Settings…
+	•	Hide Overlay
+	•	Quit
+
+All items call the same AppController handlers as menu bar uses.
+
+5.7 Dragging + persistence
+
+Implement dragging without Accessibility:
+	•	On mouseDown_: store start mouse location + initial window origin
+	•	On mouseDragged_: move window origin by delta
+	•	On mouseUp_: persist final origin in NSUserDefaults:
+	•	overlay_pos_x, overlay_pos_y
+	•	overlay_screen_index optional
+
+5.8 Restore position + clamping
+
+At overlay startup:
+	•	Determine target screen:
+	•	if saved screen index exists and valid → use it
+	•	else use NSScreen.mainScreen() or screen containing saved point
+	•	Load visibleFrame of screen
+	•	Clamp:
+	•	x between minX and maxX - bubbleWidth
+	•	y between minY and maxY - bubbleHeight
+	•	If no saved position: place top-right of visibleFrame with margin (e.g. 16px)
+
+5.9 Spaces behavior
+
+If overlay_show_all_spaces=True:
+	•	Set collectionBehavior:
+	•	NSWindowCollectionBehaviorCanJoinAllSpaces
+	•	optionally NSWindowCollectionBehaviorStationary
+
+If False:
+	•	default
+
+5.10 Fullscreen hide behavior
+
+If overlay_hide_in_fullscreen=True (default):
+	•	Do not set NSWindowCollectionBehaviorFullScreenAuxiliary
+	•	Keep it as normal window so it won’t overlay fullscreen apps in practice.
+
+If False:
+	•	you may set auxiliary, but that tends to annoy; for v0.4 allow but default stays hidden.
+
+No polling requirement is met.
 
 ⸻
 
-10) Build & Deploy (py2app)
+6) AppController integration changes
 
-10.1 Dev
-	•	python clipboard_json_logger.py
+6.1 New fields
+	•	self.overlay_controller = None
 
-10.2 Build .app (hoëvlak)
-	•	pip install pyobjc py2app
-	•	python setup.py py2app
-	•	Output: dist/ClipboardJsonLogger.app
+6.2 Lifecycle
 
-(Die presiese setup.py inhoud skryf ek in die kodefase neer sodat jy dit 1:1 kan copy/paste.)
+On launch:
+	•	if config.overlay_enabled: start overlay
+
+On terminate:
+	•	close overlay best-effort
+
+6.3 Start/stop
+	•	_start_overlay():
+	•	create OverlayBubbleController with:
+	•	config reference
+	•	callbacks to AppController actions (generate blank, prompt, settings, quit)
+	•	show window
+	•	_stop_overlay():
+	•	close window and set controller None
+
+6.4 Menu integration (minimum viable)
+
+Add menu section “Overlay”:
+	•	Overlay Enabled (checkbox)
+	•	Overlay Click Action → Generate blank / Prompt panel
+	•	Show on all Spaces (checkbox)
+	•	Hide in fullscreen (checkbox)
+
+Handlers:
+	•	update config keys
+	•	if enabled changed → start/stop overlay
+	•	else → call overlay_controller.apply_settings()
+
+6.5 Notification source
+
+Overlay calls generate_and_copy(source="overlay") so policy works.
 
 ⸻
 
-11) Sekuriteit & privaatheid
-	•	Geen netwerk calls
-	•	Geen telemetry
-	•	Settings net lokaal (NSUserDefaults)
-	•	Geen prompt/entries word permanent gestoor nie (net clipboard)
+7) Packaging / py2app
+
+7.1 Version consistency
+	•	APP_VERSION = "0.4.0"
+	•	setup.py plist:
+	•	CFBundleShortVersionString = "0.4.0"
+	•	CFBundleVersion = "0.4.0"
+
+7.2 Includes
+
+Normally PyObjC frameworks auto-resolve.
+Only add explicit includes if py2app misses:
+	•	UserNotifications (optional)
+	•	Carbon (optional)
 
 ⸻
 
-12) Backlog / vNext
+8) Test plan (smoke)
 
-v0.2.x
-	•	Modus B strict JSON output toggle
-	•	“Pretty/compact” variants
-	•	Multi-line prompt editor UI (NSTextView panel)
-	•	Template support (bv. ekstra velde)
-	•	“Floating bubble” overlay (v2 UI)
+8.1 Regression v0.2/v0.3
+	•	Mode A output matches expected string style.
+	•	Mode B output valid JSON; pretty toggle works.
+	•	Role selection affects output.
+	•	id_strategy affects id.
+	•	datumtijd correct (YYYYMMDD).
+	•	Prompt panel multi-line works.
+	•	Settings panel controls persist.
+	•	Hotkey works or gracefully fails.
+	•	Notifications policy works.
+
+8.2 Overlay v0.4
+	•	Enable overlay shows bubble
+	•	Drag bubble → persists after restart
+	•	Click action works (blank vs prompt)
+	•	Right-click menu shows and items work
+	•	Show on all spaces works
+	•	Hide in fullscreen works (default ON)
 
 ⸻
 
-Volgende stap opsies (kies 1)
+9) CHANGELOG (complete vanaf v0.2)
 
-A) Direk na kode (MVP): Ek genereer die volledige single-file Python app (class-based) met:
-	•	menu bar UI,
-	•	clipboard write,
-	•	Modus A formatter,
-	•	short_id + datumtijd,
-	•	Carbon hotkey,
-	•	basic settings.
+[0.2.0] — (retro)
 
-B) README eerst (recruiter-proof) + daarna kode.
+Added
+	•	Mode A “loose diary” output (default)
+	•	Mode B “strict JSON” output toggle
+	•	JSON pretty toggle (Mode B)
+	•	Role selection (user/system) + persistence
+	•	ID strategy: short_id (default) / uuid4
+	•	datumtijd strategy: YYYYMMDD (timezone-aware best-effort)
+	•	NSUserDefaults config wrapper
+	•	Menu bar UI: role submenu, output mode submenu
 
-C) Terug na FS (as jy nog iets wil verander).
+Fixed
+	•	Consistent clipboard writes with error surfacing (alert on failure)
 
-Sê net A, B, of C. (My voorstel: A — jy wil vinnig iets hê wat jy 100x per dag kan gebruik.)
+⸻
 
-# instructie.
-Gaan direk na kode (MVP)
+[0.3.0] — (retro)
+
+Added
+	•	Multiline Prompt Panel (NSPanel + NSTextView) “Generate with Prompt…”
+	•	Notifications (UserNotifications) best-effort
+	•	policy: all / hotkey_only / off
+	•	permission request best-effort
+	•	Global hotkey best-effort via Carbon
+	•	enable/disable
+	•	default Ctrl+Opt+Cmd+J
+	•	Settings panel UI
+	•	hotkey capture/apply/reset
+	•	notifications mode
+	•	pretty JSON toggle
+	•	status feedback line
+	•	Menu items:
+	•	Notifications submenu
+	•	Settings…
+	•	Hotkey Enabled toggle
+
+Fixed
+	•	Graceful degradation when Carbon/UserNotifications unavailable
+
+⸻
+
+[0.3.1] — 2026-02-18
+
+Fixed
+	•	Robust imports for NSObject/NSUserDefaults/NSLog:
+	•	prefer Cocoa with fallback to Foundation to avoid venv module name collisions
+	•	Version consistency hygiene (align app + packaging)
+
+Notes
+	•	If a PyPI package named Foundation exists in a venv, uninstall it to prevent collisions.
+
+⸻
+
+[0.4.0] — (planned)
+
+Added
+	•	Overlay Bubble (Floating Button):
+	•	always-on-top bubble window
+	•	draggable + persisted position + screen clamping
+	•	click action: generate blank OR open prompt panel
+	•	right-click context menu for core actions
+	•	show on all Spaces (default ON)
+	•	hide in fullscreen (default ON)
+	•	Menu controls for overlay settings:
+	•	enable/disable
+	•	click action selection
+	•	spaces toggle
+	•	fullscreen hide toggle
+
+Changed
+	•	Notifications source classification includes "overlay"; policy remains:
+	•	all / hotkey_only / off
+
+Fixed
+	•	(none specific yet; implementasie fase)
+
+⸻
+
+10) Sanity re-check (versus stap 1)
+
+✅ Alles uit v0.2 en v0.3/v0.3.1 is ingesluit: modes, role, id strategy, datumtijd tz, clipboard, prompt panel, notifications policy, hotkey + capture UI, settings panel, import-collision hardening, menu controls.
+✅ Overlay v0.4 volledige requirements ingesluit.
+
+⸻
+
+Volgende opsies
+	1.	Direk na code v0.4: ek genereer commit-ready blokke (overlay controller + view + menu items + config keys + version bump + changelog bump)
+	2.	Build plan v0.4 herskryf op basis van hierdie TS (as jy ’n strakker step-by-step wil hê)
+	3.	FS v0.4 refine (snap-to-edge, opacity/size controls, auto-start on login)
+
+Kies 1 / 2 / 3.

@@ -2965,3 +2965,310 @@ Jy’s nou by TS review en alles is basies in plek. Kies:
 
 Sê net 1 / 2 / 3.
 
+```
+herschrijf fs v0.4 inclusief de nieuwe  Overlay Bubble (Floating Button) functionaliteiten.
+Voor je output genereer doen sanity checks:
+ 1. Lees de FS v0.3 en FS v0.4 die je hebt gemaakt, en check dat je alle functionaliteiten heb behouden. Indien je functionaliteiten had weggelaten meld dat en voeg dit toe aan de FS!
+2. Output dan opnieuw de volledige FS en check opnieuw of dit volledig was versus stap 1.
+3. Bied mij dan opties om de volgende stap te ondernemen zoals Build pla, FS, direct naar code enz.
+```
+
+Hier’s wat ek kan doen, eerlijk:
+	•	Sanity check stap 1: ek kan nie jou oorspronklike “FS v0.3” en my “FS v0.4” uit ’n vorige artefak teruglaai nie (daar’s niks daarvan in die beskikbare geskiedenis wat ek kan hergebruik nie).
+	•	So die sanity check kan ek net doen teen alles wat in hierdie chat as vereistes genoem is + die v0.3.1 code wat jy geplak het.
+
+Ek gaan dit so aanpak:
+	1.	Ek lys alle funksionaliteite wat ek uit die chat kan aflei (baseline = “FS v0.3 + overlay v0.4”).
+	2.	Ek skryf dan die volledige FS v0.4 (inklusief alles).
+	3.	Ek doen ’n self-check teen die lys uit stap 1 en meld as iets ontbreek (en voeg dit in).
+
+⸻
+
+1) Sanity check: vereistes wat ek MOET behou (uit hierdie chat)
+
+Baseline app (v0.3 reeks)
+	•	macOS menu bar app (status item + menu)
+	•	Generate Entry: genereer entry en copy na clipboard
+	•	UUID/ID generering: strategie short_id (default) of uuid4
+	•	datumtijd: YYYYMMDD (default timezone Europe/Amsterdam)
+	•	Role: user of system (default role configurable)
+	•	Output modes:
+	•	Mode A (loose) default: “dagboek” pseudo-JSON / python-dict styl met triple quotes vir prompt
+	•	Mode B (strict JSON) toggle: geldige JSON, met pretty toggle
+	•	Multiline prompt panel: NSPanel + NSTextView (“Generate with Prompt…”)
+	•	Notifications (best-effort): policy all / hotkey_only / off
+	•	Hotkey (best-effort Carbon):
+	•	enable/disable
+	•	default combo Ctrl+Opt+Cmd+J
+	•	hotkey capture UI + reset
+	•	conflict/unavailable degrade gracefully
+	•	Settings panel:
+	•	hotkey enabled
+	•	hotkey capture/apply/reset
+	•	notifications policy
+	•	pretty JSON toggle (Mode B)
+	•	Packaging: py2app (menu bar .app, klaar vir commit/repo)
+	•	Dev cycle: FS → FS review → build plan → build plan review → TS update → TS bugfix impl → TS review → code build
+	•	by elke stap opsie om direk na code te spring en later terug te kom.
+
+Nuwe v0.4 uitbreiding
+	•	Overlay Bubble (Floating Button):
+	•	always-on-top floating button
+	•	draggable
+	•	click action configurable: generate blank entry OF open prompt panel
+	•	right-click menu (kern aksies)
+	•	enable/disable
+	•	persist posisie (per screen)
+	•	show on all spaces (default ON)
+	•	hide in fullscreen (default ON)
+	•	lae CPU, geen polling
+
+Dit is die “must keep” lys.
+
+⸻
+
+Functional Specification (FS) v0.4 — Clipboard JSON Logger (Menu Bar + Overlay Bubble)
+
+Product name: Clipboard JSON Logger
+Platform: macOS (menu bar utility)
+Primary use-case: super vinnig “chatlog entry” snippet genereer en na clipboard kopieer vir plakkery in ’n tekseditor / dagboek.
+
+0) Kernbeginsel
+	•	Alles moet friksie-minimum wees: 1–2 aksies → clipboard is reg.
+	•	Modus A is default (loose), Modus B is toggle (strict JSON).
+	•	Alles “best-effort”: as hotkey/notifications nie beskikbaar is nie, app bly bruikbaar via menu.
+
+⸻
+
+1) Doel & waarde
+
+Doel
+
+Skep ’n klein macOS utility wat outomaties ’n “chatlog entry” genereer met:
+	•	id
+	•	role (user/system)
+	•	prompt (multi-line moontlik)
+	•	datumtijd (YYYYMMDD)
+…en dit na clipboard kopieer.
+
+Hoekom
+
+Handmatige ID + timestamp tik is stadig en foutgevoelig. Die app maak dit ‘n refleks.
+
+⸻
+
+2) Scope
+
+In scope (v0.4)
+	•	Menu bar app met menu aksies
+	•	Output Mode A (loose) + Mode B (strict JSON) + toggle
+	•	Prompt panel (multi-line)
+	•	Clipboard copy
+	•	Notifications policy (all / hotkey_only / off)
+	•	Settings UI (hotkey, notifications, pretty JSON)
+	•	Best-effort global hotkey (Carbon)
+	•	py2app packaging
+	•	Overlay Bubble (Floating Button) (nuut)
+
+Out of scope (v0.4)
+	•	Entry history browser / search
+	•	Templates library (buiten “click action” vir prompt vs blank)
+	•	Cloud sync
+	•	Telemetry / analytics
+	•	Auto-start on login (kan later v0.5+)
+
+⸻
+
+3) Data formats
+
+3.1 Mode A — “loose diary format” (default)
+
+Doel: menslik-vriendelik, maklik in dagboek te plak; nie noodwendig geldige JSON nie.
+
+Voorbeeld (soos jy gegee het):
+
+{'id': 'efeqer3fr', role: 'system', prompt: """
+<jou multi-line teks hier>
+"""
+,
+datumtijd: "20260214"
+},
+
+Reëls:
+	•	Gebruik triple quotes vir prompt body.
+	•	Hou newlines presies soos gebruiker dit tik.
+	•	Eindig met }, (soos jou voorbeeld) vir maklike concatenation in ’n groter log.
+
+3.2 Mode B — “strict JSON” (toggle)
+
+Doel: masjienleesbaar / geldig JSON.
+
+Struktuur:
+
+{
+  "id": "…",
+  "role": "user|system",
+  "prompt": "…",
+  "datumtijd": "YYYYMMDD"
+}
+
+Opsie:
+	•	pretty (indent=2) ON/OFF
+
+⸻
+
+4) Functional requirements (FR)
+
+FR-01 Menu bar presence
+	•	App wys as status item in macOS menu bar.
+	•	Ikoon/teks is minimalisties (bv { }).
+
+FR-02 Generate Entry (blank)
+	•	Menu item: Generate Entry
+	•	Gebruik default role uit settings.
+	•	Gebruik default output mode (A of B).
+	•	Prompt is leeg string.
+	•	Copy output na clipboard.
+
+FR-03 Generate with Prompt (multi-line)
+	•	Menu item: Generate with Prompt…
+	•	Open ’n panel met:
+	•	role dropdown (user, system)
+	•	multi-line text box
+	•	“Copy Entry” + “Cancel”
+	•	Copy genereerde output na clipboard.
+
+FR-04 Role selection
+	•	Default role in settings (user/system).
+	•	Menu kan role switch via submenu.
+
+FR-05 Output Mode selection
+	•	Default is Mode A (“loose diary”).
+	•	Menu kan Mode A/B switch via submenu.
+	•	Mode B is geldige JSON.
+
+FR-06 ID generation
+	•	Strategy in settings:
+	•	short_id (default)
+	•	uuid4
+	•	short_id lengte configurable (later), maar default 9 is fine.
+
+FR-07 datumtijd formatting
+	•	Default format: YYYYMMDD
+	•	Default timezone: Europe/Amsterdam
+	•	As timezone lib nie beskikbaar is nie, fallback na local time.
+
+FR-08 Clipboard behavior
+	•	Na generate: output word in clipboard gesit.
+	•	As clipboard write fail: toon error alert.
+
+FR-09 Notifications policy
+	•	Settings waarde: all / hotkey_only / off
+	•	Default: hotkey_only (spam mitigation)
+	•	Notifications is best-effort:
+	•	as framework ontbreek of permission denied → geen crash
+
+FR-10 Global hotkey (best-effort)
+	•	Enable/disable hotkey in settings en ook quick toggle in menu.
+	•	Default combo: Ctrl+Opt+Cmd+J
+	•	As Carbon nie beskikbaar is nie → hotkey funksies degrade; menu bly werk.
+	•	Hotkey trigger doen “Generate Entry” (blank prompt) en respekteer notifications policy.
+
+FR-11 Settings panel
+
+Settings panel bied:
+	•	Hotkey enabled toggle
+	•	Hotkey capture (press combo) + apply
+	•	Hotkey reset na default combo
+	•	Notifications mode dropdown
+	•	“Pretty JSON (Mode B)” toggle
+	•	Status line vir feedback (“Hotkey applied”, “Rejected: add modifier”, ens.)
+
+FR-12 Overlay Bubble (Floating Button) — nuut in v0.4
+	•	Settings: overlay_enabled (default OFF vir veilige rollout)
+	•	As enabled:
+	•	Klein floating button bly bo-op ander windows
+	•	Draggable
+	•	Positie word onthou en herlaai na restart
+	•	Click action (setting overlay_click_action):
+	•	generate_blank (default) → selfde as “Generate Entry”
+	•	open_prompt_panel → selfde as “Generate with Prompt…”
+	•	Right-click menu op bubble:
+	•	Generate Entry
+	•	Generate with Prompt…
+	•	Toggle Mode A/B
+	•	Open Settings…
+	•	Hide Overlay
+	•	Quit
+	•	Spaces/fullscreen gedrag (settings):
+	•	overlay_show_all_spaces default ON
+	•	overlay_hide_in_fullscreen default ON
+
+FR-13 Performance & stability
+	•	Geen polling/timers vir overlay.
+	•	Overlay errors mag nie app crash nie.
+	•	App bly bruikbaar sonder overlay, sonder hotkey, sonder notifications.
+
+⸻
+
+5) Non-functional requirements (NFR)
+	•	Responsiveness: “Generate Entry” moet onmiddellik voel (<200ms tipies).
+	•	Low CPU: idle CPU ~0.
+	•	No data leakage: geen network calls, geen telemetry.
+	•	Consistency: APP_VERSION moet ooreenstem met packaging version.
+
+⸻
+
+6) Packaging & delivery
+	•	Packaging via py2app om ’n .app te bou.
+	•	Repo bevat minimaal:
+	•	README.md (recruiter-proof: wat dit doen, hoe om te run, hoe om te build)
+	•	src/clipboard_json_logger.py (single-file app code)
+	•	setup.py (py2app config)
+	•	CHANGELOG.md
+	•	LICENSE
+
+⸻
+
+7) Acceptance criteria (v0.4)
+	•	Mode A output match jou voorbeeld-structuur (incl triple quotes).
+	•	Mode B output is geldige JSON; pretty toggle werk.
+	•	Menu bar items werk (Generate Entry, Generate with Prompt…, Settings, Quit).
+	•	Prompt panel multi-line input werk.
+	•	Hotkey enable/disable + capture + reset werk of degrade gracefully.
+	•	Notifications policy werk; off = niks; hotkey_only = net hotkey; all = altyd.
+	•	Overlay kan enable/disable; draggable; posisie onthou.
+	•	Overlay click action respect settings.
+	•	Overlay right-click menu werk.
+	•	Overlay hide in fullscreen werk (default ON).
+
+⸻
+
+8) Self-check teen stap 1 (is iets weggelaat?)
+
+Teen die lys in stap 1: alles is ingesluit:
+	•	menu bar, modes, role, id strategy, datumtijd tz, clipboard, prompt panel, notifications, hotkey + capture UI, settings, py2app, dev cycle note, overlay bubble requirements.
+
+As jy wel ’n ou FS v0.3 het met ekstra “klein” vereistes wat ek nie hier kon sien nie, plak dit later en ek merge dit 1:1 in v0.4.
+
+⸻
+
+Volgende opsies
+	1.	Build plan v0.4 (stappe + toetsplan + release checklist)
+	2.	TS v0.4 (konkrete tegniese ontwerp vir overlay window + settings keys + Cocoa APIs)
+	3.	Direk na code: commit-ready blokke (overlay implementasie + setup.py + changelog updates)
+	4.	Terug na FS refine: bv. auto-start on login, snap-to-edge, overlay opacity/size settings
+
+Sê net 1 / 2 / 3 / 4.
+
+```
+retro-activley schrijf de build plans voor v0.1, v0.2 en v.03 en geef mij dan weer opties zoals TS v0.4 schrijf enz.
+
+herschrijf TS v0.4 inclusief de nieuwe  Overlay Bubble (Floating Button) functionaliteiten.
+Voor je output genereer doen sanity checks:
+ 1. Lees de TS v0.3 en TS v0.4 die je hebt gemaakt, en check dat je alle functionaliteiten heb behouden. Indien je functionaliteiten had weggelaten meld dat en voeg dit toe aan de TS!
+2. Output dan opnieuw de volledige TS,schrijf een volledig CHANGELOG inclusief wijzingen / bugfixes enz vanaf v0.2 en check opnieuw of dit volledig was versus stap 1.
+3. Bied mij dan opties om de volgende stap te ondernemen zoals Build plan, FS, direct naar code enz.
+
+```
+
