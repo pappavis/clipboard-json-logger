@@ -2,6 +2,8 @@
 
 A tiny macOS menu bar utility that generates a “chatlog entry” and copies it to the clipboard with one click or a global hotkey. Built in **Python + PyObjC** for native AppKit integration on macOS.
 
+<img src="./img/app_demo1.png">
+
 ## Why this exists
 
 If you keep an online diary / running log and want every entry to have:
@@ -51,9 +53,6 @@ pip install -U pyobjc-core pyobjc-framework-Cocoa pyobjc-framework-UserNotificat
 ```python
 python src/clipboard_json_logger.py
 ```
-
-# deze menu verschijnt
-<img src="./img/app_demo1.png">
 
 # Credits
 Michiel Erasmus
