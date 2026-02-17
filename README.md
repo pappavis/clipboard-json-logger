@@ -32,3 +32,15 @@ datumtijd: "20260214"
 python3 -m pip install -U py2app
 python3 setup.py py2app
 ```
+
+# Run code
+
+```python
+python src/clipboard_json_logger.py
+```
+
+# deze menu verschijnt
+<img src="./img/app_demo1.png">
+
+# Credits
+Michiel Erasmus

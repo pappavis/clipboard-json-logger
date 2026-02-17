@@ -47,6 +47,8 @@ Buite scope (nou nie)
 
 ⸻
 
+<img src="../img/app_demo1.png">
+
 3) Primêre UX-opsies (realisties op macOS)
 
 Jy vra vir ’n “knoppie wat op die desktop sweef”. Dit kan, maar op macOS raak dit vinnig “permission-heavy” (Accessibility/Screen overlay gedrag) en is meer werk.
@@ -2854,6 +2856,112 @@ Jou volgende opsies
 
 Sê net 1, 2, of 3.
 
-```
+```bash
 	1.	Spring na kode: Ek genereer v0.3 commit-ready blokke (updated clipboard_json_logger.py + README + setup.py + CHANGELOG) volgens TS.
 ```
+
+
+Top. Hier’s (1) update setup.py + CHANGELOG.md na 0.3.1 en daarna (2) TS review.
+
+⸻
+
+1) Update setup.py + CHANGELOG.md na 0.3.1
+
+A) setup.py (minimum patch)
+
+Soek hierdie deel en bump dit na 0.3.1:
+
+Voor:
+
+"CFBundleShortVersionString": "0.3.0",
+
+Na:
+
+"CFBundleShortVersionString": "0.3.1",
+
+Ek beveel ook aan om CFBundleVersion by te voeg (help vir builds/updates):
+
+"CFBundleVersion": "0.3.1",
+
+Volledige plist block voorbeeld:
+
+"plist": {
+    "CFBundleName": "ClipboardJsonLogger",
+    "CFBundleDisplayName": "Clipboard JSON Logger",
+    "CFBundleIdentifier": "com.yourname.clipboardjsonlogger",
+    "CFBundleShortVersionString": "0.3.1",
+    "CFBundleVersion": "0.3.1",
+},
+
+Let wel: CFBundleIdentifier kan later jou eie reverse-domain wees. Dit hoef nie nou perfek te wees vir dev nie.
+
+⸻
+
+B) CHANGELOG.md (voeg 0.3.1 bo-aan by)
+
+Voeg hierdie bo-aan (bo 0.3.0) in:
+
+## [0.3.1] - 2026-02-18
+### Fixed
+- Version bump consistency (app + packaging)
+- Runtime/import fixes from early v0.3 roll-out
+
+### Notes
+- If `Foundation` import collisions occur in a venv, prefer importing `NSObject/NSUserDefaults/NSLog` from `Cocoa`.
+
+(As jy spesifieke fixes wil noem, plak net jou Copilot change summary, dan maak ek die changelog “waar” en skoon.)
+
+⸻
+
+C) Commit + push
+
+git add setup.py CHANGELOG.md
+git commit -m "Release: bump packaging + changelog to 0.3.1"
+git push
+
+
+<img src="../img/TS_review03.png">
+
+⸻
+
+2) TS review (v0.3) teen jou 0.3.1 code — checklist + gaps
+
+TS v0.3 Must-haves: status
+	•	✅ Menu bar app (status item + menu)
+	•	✅ Modus A default / Modus B toggle
+	•	✅ Multiline prompt panel (NSPanel + NSTextView)
+	•	✅ Notifications policy (All / Hotkey only / Off) + default hotkey_only
+	•	✅ Settings panel (hotkey enable/disable, capture, reset; notif mode; pretty JSON)
+	•	✅ Hotkey re-register via apply callback (best-effort Carbon)
+	•	✅ Formatter: Modus A triple quotes + preserve newlines; Modus B valid JSON w/ \n
+
+Belangrike gap / sanity warnings (ek sal dit nie sugarcoat nie)
+	1.	Import-collision risiko is steeds daar
+Jou 0.3.1 code gebruik weer:
+
+from Foundation import NSObject, NSUserDefaults, NSLog
+
+As jou venv die verkeerde PyPI “Foundation” het, crash jy weer. TS sê “best-effort / degrade gracefully”, maar import crash is nie graceful nie.
+Aanrader vir production stability (TS-bugfix):
+
+from Cocoa import NSObject, NSUserDefaults, NSLog
+
+(Of maak ’n try/fallback import: eers Cocoa, dan Foundation.)
+
+	2.	APP_VERSION consistency
+Jy het nou reggemaak na 0.3.1 in code (goed). Maak seker setup.py is ook 0.3.1 (gedoen bo) en changelog entry bestaan (gedoen bo).
+Bonus: README kan “v0.3” bly; hoef nie 0.3.1 oral te noem nie.
+	3.	Main-thread UI reël (TS addendum)
+In praktyk loop jou menu handlers op die main thread, so dis meestal fine. Maar as jy later background threads bysit, moet jy onthou: AppKit UI calls → main thread.
+
+⸻
+
+Wat’s jou volgende stap?
+
+Jy’s nou by TS review en alles is basies in plek. Kies:
+	1.	TS bugfixes implementeren (patch): Ek gee jou ’n klein commit-ready patch om die import-collision permanent te fix (Cocoa import + fallback), plus enige ander mini-hygiene (version single-source as jy wil).
+	2.	Build & smoke-test flow: ek gee ’n kort “doen hierdie 8 commands” om py2app .app te bou en te toets (notifications + hotkey).
+	3.	Terug na FS (v2): overlay bubble / templates / history / auto-start.
+
+Sê net 1 / 2 / 3.
+

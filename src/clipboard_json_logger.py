@@ -13,6 +13,8 @@
 # - Multiline prompt panel (NSPanel + NSTextView)
 # - Notifications (UserNotifications) with policy: All / Hotkey only / Off
 # - Settings panel with hotkey capture + apply
+# v0,3.1 adds:
+# - Fix: robust NSObject imports (prefer Cocoa; fallback to Foundation) to avoid venv collisions
 
 from __future__ import annotations
 
@@ -30,7 +32,13 @@ except Exception:
     ZoneInfo = None  # type: ignore
 
 import objc
-from Foundation import NSObject, NSUserDefaults, NSLog
+
+# Prefer Cocoa to avoid "Foundation" module name collisions in some venvs.
+try:
+    from Cocoa import NSObject, NSUserDefaults, NSLog
+except Exception:
+    from Foundation import NSObject, NSUserDefaults, NSLog
+
 from AppKit import (
     NSApplication,
     NSStatusBar,
@@ -89,7 +97,8 @@ except Exception:
 
 
 APP_NAME = "Clipboard JSON Logger"
-APP_VERSION = "0.3.1"APP_BUILD_DATE = "2026-02-18"
+APP_VERSION = "0.3.1"
+APP_BUILD_DATE = "2026-02-18"
 DEFAULT_TIMEZONE = "Europe/Amsterdam"
 
 # NSUserDefaults keys
