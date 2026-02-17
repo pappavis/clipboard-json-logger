@@ -3273,6 +3273,9 @@ Voor je output genereer doen sanity checks:
 
 ```
 
+<img src="../img/ontwikkelcyclusAI.jpg" width="40%" height="40%">
+
+
 en dit ook
 ```
 Toon de  laatste fs 0.4 volledig in github .md-formaat , zodat ik dit in 1-keer kan kopieer plakken naar github.  Sanity check dat je de voleldige FS v0.4 heb geoutput. Geef mij daarna weer opties om de app te vebeteren
