@@ -543,9 +543,10 @@ Fixed
 
 ⸻
 
-Volgende opsies
+# Volgende opsies
 	1.	Direk na code v0.4: ek genereer commit-ready blokke (overlay controller + view + menu items + config keys + version bump + changelog bump)
 	2.	Build plan v0.4 herskryf op basis van hierdie TS (as jy ’n strakker step-by-step wil hê)
 	3.	FS v0.4 refine (snap-to-edge, opacity/size controls, auto-start on login)
 
 Kies 1 / 2 / 3.
+
