@@ -3244,7 +3244,7 @@ FR-13 Performance & stability
 
 ⸻
 
-8) Self-check teen stap 1 (is iets weggelaat?)
+# 8) Self-check teen stap 1 (is iets weggelaat?)
 
 Teen die lys in stap 1: alles is ingesluit:
 	•	menu bar, modes, role, id strategy, datumtijd tz, clipboard, prompt panel, notifications, hotkey + capture UI, settings, py2app, dev cycle note, overlay bubble requirements.
@@ -3253,7 +3253,7 @@ As jy wel ’n ou FS v0.3 het met ekstra “klein” vereistes wat ek nie hier k
 
 ⸻
 
-Volgende opsies
+# Volgende opsies
 	1.	Build plan v0.4 (stappe + toetsplan + release checklist)
 	2.	TS v0.4 (konkrete tegniese ontwerp vir overlay window + settings keys + Cocoa APIs)
 	3.	Direk na code: commit-ready blokke (overlay implementasie + setup.py + changelog updates)
@@ -3270,5 +3270,11 @@ Voor je output genereer doen sanity checks:
 2. Output dan opnieuw de volledige TS,schrijf een volledig CHANGELOG inclusief wijzingen / bugfixes enz vanaf v0.2 en check opnieuw of dit volledig was versus stap 1.
 3. Bied mij dan opties om de volgende stap te ondernemen zoals Build plan, FS, direct naar code enz.
 
+
+```
+
+en dit ook
+```
+Toon de  laatste fs 0.4 volledig in github .md-formaat , zodat ik dit in 1-keer kan kopieer plakken naar github.  Sanity check dat je de voleldige FS v0.4 heb geoutput. Geef mij daarna weer opties om de app te vebeteren
 ```
 
