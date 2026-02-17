@@ -2364,3 +2364,496 @@ Hier’s jou volgende opsies (kies net die nommer(s); ek gaan dan direk lewer):
 
 Watter pad vat ons? (As ek moet raai: 5 + 2 maak jou daaglikse gebruik die lekkerste, vinnigste.)
 
+
+
+```
+18-feb-2026.
+# instructie. 
+1. Lees de build plan.
+2. skryf TS v0.3.  
+3. Lees jouw TS 3.0 en sanity check voor dingen die je was vergeten, indien wel wel meld dit aan mij en voeg die vergeten teksten toe aan het laatste TS.
+4. Herschrijf de build plan op basis van de laatste TS.
+
+Vanaf nu is de nieuwe ontwikkelcyclus FS --> FS review -- > build plan --> build plan review --> TS bijwerken met nieuwe functionaliteiten --> TS bugfixes implementeren --> TS review --> Code bouwen.
+
+Bij elke Ontwikkelcyclus stap moet ik de optie krijgen direct over te gaan op code bouwen en weer doorgaan bij de  Ontwikkelcyclus stap  waar ik bezig was. Bijvoorbeeld zou ik al bij de build plan code wil genereren.
+```
+
+Hier is die hele pakket volgens jou 18-Feb-2026 instruksie: (1) build plan gelees, (2) TS v0.3 geskryf, (3) sanity check + byvoegings, (4) build plan herskryf op grond van finale TS. Daarna sit ek jou nuwe ontwikkel-siklus netjies neer en gee ek opsies by elke stap, insluitend “spring nou na kode”.
+
+⸻
+
+1) Build plan gelees (huidige plan as basis)
+
+Jou laaste v0.3 Plan (wat ek nou as “build plan v0.2” beskou) het hierdie hoofitems gehad:
+	1.	Multiline Prompt Panel
+	•	Vervang NSAlert + NSTextField met NSPanel/NSWindow + NSTextView + NSScrollView.
+	2.	Notifications
+	•	“Copied entry” macOS notification na sukses.
+	•	Graceful fallback as user notifications af is.
+	3.	Hotkey Config UI
+	•	Settings panel: enable/disable, capture hotkey, wys huidige hotkey, reset.
+	•	Save in NSUserDefaults, re-register hotkey.
+	4.	Formatter stabiliteit
+	•	Modus A triple quotes; Modus B JSON (met \n).
+	•	(Opsioneel) pretty/compact JSON toggle later.
+	5.	py2app packaging
+	•	bump versie, smoke test .app.
+	6.	Delivery order
+	•	Prompt panel → notifications → settings/hotkey capture → tests → build.
+
+Ek gebruik dit nou as input om TS v0.3 te spesifiseer.
+
+⸻
+
+2) TS v0.3 (Tegniese Spesifikasie)
+
+Projek: Clipboard JSON Logger (macOS menu bar app)
+Datum: 18 Februarie 2026
+TS Weergawe: v0.3.0
+Code target: v0.3.0
+Konstantes:
+	•	Modus A = default (loose diary)
+	•	Modus B = toggle (strict JSON)
+	•	Packaging = py2app
+	•	Code styl = modulêr, class-based; verkieslik alles in 1 lêer vir maklike redistribusie (MVP/early releases)
+
+2.1 Doel (v0.3)
+
+v0.3 voeg 3 groot UX features by sonder om jou bestaande workflow te breek:
+	1.	Multiline Prompt UI (regte teksblok, newlines/enter)
+	2.	macOS Notifications op sukses (“Copied!”) met instellings om spam te beheer
+	3.	Hotkey Config UI (enable/disable + capture + persist + re-register)
+
+2.2 Out of scope (v0.3)
+	•	Floating overlay bubble (desktop “swewende knoppie”) — bly v2/FS uitbreiding
+	•	Append-to-file / history storage
+	•	Template engine (kan later)
+	•	Full preferences UI met tabs/advanced
+
+2.3 Hoëvlak argitektuur
+
+Single-file (nog steeds) met duidelike klasse:
+
+Core domain
+	•	EntryModel (dataclass)
+	•	IdService (short_id/uuid4)
+	•	DateTimeService (datumtijd YYYYMMDD)
+	•	EntryFormatter
+	•	format_loose_diary(entry) (Modus A)
+	•	format_strict_json(entry, pretty=True|False) (Modus B)
+
+OS integration services
+	•	ClipboardService (NSPasteboard)
+	•	NotificationService (UNUserNotificationCenter; fallback strategy)
+	•	HotkeyService (Carbon RegisterEventHotKey; best-effort)
+
+UI controllers
+	•	MenuBarUI (status item + menu wiring) of hou dit binne AppController (as jy wil simple hou)
+	•	PromptPanelController (multiline prompt)
+	•	SettingsPanelController (hotkey capture + toggles)
+
+Orchestration
+	•	AppConfig (NSUserDefaults wrapper)
+	•	AppController (die “single source of truth”: state, actions, error handling)
+
+2.4 Persistensie: NSUserDefaults keys (uitbreiding)
+
+Bestaande keys bly; v0.3 voeg by:
+	•	notifications_enabled: bool (default true, maar met spam-mitigering)
+	•	notifications_mode: str enum
+	•	"all" (menu + hotkey)
+	•	"hotkey_only"
+	•	"off" (kan ook net notifications_enabled=false wees; maar enum is netjieser)
+	•	json_pretty: bool (default true) — slegs relevant in strict_json modus
+	•	last_prompt_cache_enabled: bool (default false) (opsioneel; as jy dit later wil)
+	•	last_prompt: str (slegs as cache enabled)
+
+Hotkey keys bly:
+	•	hotkey_enabled, hotkey_keycode, hotkey_modifiers
+
+Output mode keys bly:
+	•	output_mode = loose_diary | strict_json
+
+2.5 UI spesifikasie
+
+2.5.1 Menu bar menu (v0.3)
+
+Menu items (minimum):
+	1.	Generate Entry
+	2.	Generate with Prompt… (open multiline panel)
+— separator —
+	3.	Role submenu: user / system (assistant later)
+	4.	Output Mode submenu: Loose diary (A) / Strict JSON (B)
+	5.	Notifications submenu:
+	•	All
+	•	Hotkey only
+	•	Off
+	6.	Settings… (open settings panel)
+— separator —
+	7.	Quit
+
+Menu states moet die huidige settings reflect (radio checkmarks).
+
+2.5.2 PromptPanelController (multiline)
+
+Doel: Laat jou ’n multiline prompt tik en copy.
+
+UI elements:
+	•	Title: “Generate with Prompt”
+	•	Role dropdown (optional)
+	•	Default: current default_role
+	•	User kan override vir net hierdie entry (nice-to-have; as jy dit te veel vind, skip vir v0.3)
+	•	Scrollable text area: NSTextView in NSScrollView
+	•	Buttons:
+	•	Copy Entry
+	•	Cancel
+
+Events:
+	•	Copy Entry → AppController.generate_and_copy(prompt=<multiline>, role_override=<optional>)
+	•	Cancel → close panel, no changes
+
+Behavior:
+	•	Preserve newlines exactly.
+	•	Empty prompt allowed.
+
+2.5.3 SettingsPanelController (hotkey + toggles)
+
+Doel: Verander hotkey en notification gedrag sonder code editing.
+
+Minimum UI:
+	•	Checkbox: Hotkey Enabled
+	•	Label: Current hotkey display (bv. “⌃⌥⌘J”)
+	•	Button: “Capture Hotkey…”
+	•	Button: “Reset Hotkey”
+	•	Notification mode radio/segmented:
+	•	All / Hotkey only / Off
+	•	(Opsioneel) JSON pretty checkbox (only relevant if Strict JSON)
+
+Hotkey capture flow:
+	1.	User klik “Capture Hotkey…”
+	2.	UI gaan in “listening mode”
+	3.	User druk key combo
+	4.	App:
+	•	lees keycode + modifiers
+	•	valideer (minstens 1 modifier)
+	•	probeer register
+	•	as sukses: save + update display
+	•	as fail: wys fout + revert na vorige
+
+Belangrik: Settings panel mag nie jou normale typing hotkey “steel” buite capture mode nie.
+
+2.6 Notifications (macOS)
+
+Primêre implementasie:
+	•	UserNotifications (UNUserNotificationCenter) vir “Copied entry”.
+
+Permission:
+	•	Request authorization net as notifications mode ≠ off, by eerste gebruik of wanneer user dit aanskakel.
+	•	As user deny:
+	•	setting bly aan maar app degrade gracefully: geen notif, geen crash
+	•	(optional) wys eenmalige alert: “Notifications disabled in system settings”
+
+Spam mitigation:
+	•	Default notifications_mode = hotkey_only (my aanbeveling vir jou 100x/day usage), of all as jy regtig wil.
+	•	TS maak dit configurable; default kies ons later in code, maar TS moet die instelling definieer.
+
+Notification content:
+	•	Title: “Copied entry”
+	•	Body: role=<role>, mode=<A|B> (id optional)
+
+2.7 Hotkeys
+
+Primêr:
+	•	Carbon RegisterEventHotKey (best-effort).
+
+Fallback:
+	•	As Carbon nie beskikbaar of registrasie faal:
+	•	hotkey disabled (in runtime) met log + UI waarskuwing in Settings (“Hotkey unavailable/conflict”)
+	•	menu actions bly 100% werkend
+
+Unregister:
+	•	On app quit / disable: unregister (best-effort)
+
+Keycode mapping:
+	•	Gebruik Carbon virtual keycodes (bewus dat layout verskil op nie-US keyboards).
+	•	Display string (⌃⌥⌘J) kan basis wees; advanced mapping later.
+
+Validation:
+	•	Vereis >= 1 modifier
+	•	Block pure modifiers (no key) obviously
+	•	Conflict detection = register fail → revert
+
+2.8 Formatting rules (v0.3)
+
+Mode A (Loose diary)
+	•	prompt altyd in triple-quote blok
+	•	Preserve prompt newlines
+	•	datumtijd altyd YYYYMMDD
+
+Mode B (Strict JSON)
+	•	JSON payload:
+	•	id, role, prompt, datumtijd
+	•	prompt is string met \n escapes (json.dumps handles)
+	•	pretty/compact controlled by json_pretty
+
+2.9 Logging & errors
+	•	Sukses: log role, mode, id_strategy
+	•	Foute:
+	•	Clipboard fail → critical alert
+	•	Notification fail → ignore/log
+	•	Hotkey fail → log + settings UI warning
+
+2.10 Tests (minimum)
+
+Unit tests (pure python, no UI):
+	•	EntryFormatter multiline prompt cases:
+	•	empty
+	•	single line
+	•	multi-line with blank lines
+	•	unicode/emoji
+	•	IdService short_id length + charset
+	•	DateTimeService returns 8 digits
+
+Manual smoke tests:
+	•	Menu generate (A) → paste ok
+	•	Mode switch to B → paste valid JSON
+	•	Prompt panel multiline → output ok in A and B
+	•	Notification shows (or gracefully doesn’t)
+	•	Settings capture hotkey → new hotkey triggers generate
+	•	Disable hotkey → stops triggering
+
+2.11 Packaging (py2app)
+	•	setup.py bump to 0.3.0
+	•	Provide icon placeholder optional
+	•	Smoke test .app in dist:
+	•	menu bar loads
+	•	panels show
+	•	notifications/hotkey behave as above
+
+2.12 Release checklist (v0.3)
+	•	Version bump in:
+	•	app constants
+	•	setup.py
+	•	changelog
+	•	Run smoke tests
+	•	Build .app with py2app
+	•	Tag release (optional) in GitHub
+
+⸻
+
+3) TS v0.3 sanity check + “vergeet-dinge” fixes
+
+Ek het TS v0.3 nagegaan teen jou plan + huidige codebase. Hier is die items wat maklik vergeet word en ek voeg dit nou by TS (ingesluit as “TS addendum v0.3.1” – maar jy kan dit net as deel van v0.3 beskou):
+
+3.1 (Bygevoeg) Main-thread UI reël
+	•	Alle AppKit UI updates (open/close panels, menu state refresh) moet op die main thread gebeur.
+
+3.2 (Bygevoeg) Settings UI waarskuwing teks vir hotkey conflicts
+	•	In Settings panel: as register fail, wys ’n duidelike boodskap “Hotkey conflict/unavailable” en revert.
+
+3.3 (Bygevoeg) Notification permission flow detail
+	•	Authorization request moet net gebeur wanneer:
+	•	notifications_mode van Off → All/HotkeyOnly verander, of
+	•	eerste keer dat ’n notification gestuur sou word.
+	•	As denied: degrade silently, maar wys eenmalige waarskuwing (opsioneel) om user te help.
+
+3.4 (Bygevoeg) Notification spam default
+	•	Default notifications_mode = hotkey_only (meer prakties vir jou gebruikspatroon).
+
+3.5 (Bygevoeg) Prompt panel reuse
+	•	Reuse dieselfde panel instance (nie elke keer nuwe window) om flicker en leak risiko te verminder.
+
+3.6 (Bygevoeg) App shutdown cleanup
+	•	On terminate: best-effort HotkeyService.stop()
+
+Ek het hierdie punte reeds konsekwent in die finale build plan ingewerk (hier onder).
+
+⸻
+
+4) Build plan herskryf op basis van finale TS (v0.3 build plan)
+
+Build Plan v0.3 (gebaseer op TS v0.3 + sanity addendum)
+
+4.1 Acceptance criteria (must-pass)
+	•	Multiline prompt panel werk; newlines presies behou.
+	•	Notifications werk of fail-gracefully; instelling bepaal wanneer dit wys.
+	•	Hotkey settings panel kan hotkey capture + persist + apply.
+	•	Modus A default; Modus B toggle; formatter correct in beide.
+	•	py2app build .app run.
+
+4.2 Take breakdown (in bou-volgorde)
+
+Stap 1 — Multiline Prompt Panel (PromptPanelController)
+	•	Implement PromptPanelController (NSPanel/NSWindow + NSTextView)
+	•	Wire Generate with Prompt… menu item → open panel
+	•	Callback → AppController.generate_and_copy(prompt=...)
+	•	Preserve newlines; allow empty prompt
+	•	Reuse panel instance; main-thread UI
+
+Opsie om nou al code te bou: Ja (ná hierdie stap kan jy al v0.3-branch commit met net multiline panel)
+
+⸻
+
+Stap 2 — Notifications (NotificationService)
+	•	Add NotificationService
+	•	Add settings: notifications_mode (all/hotkey_only/off), default hotkey_only
+	•	Permission request flow (on enable/first send)
+	•	On success copy: send “Copied entry” notif as per mode
+	•	If denied/unavailable: log; no crash
+
+Opsie om nou al code te bou: Ja (kan los van hotkey UI gedoen word)
+
+⸻
+
+Stap 3 — Settings Panel (SettingsPanelController)
+	•	Settings panel UI:
+	•	Hotkey enabled checkbox
+	•	capture button + display string
+	•	reset button
+	•	notifications mode selector
+	•	(optional) JSON pretty toggle
+	•	Persist via AppConfig
+	•	Main-thread updates; menu refresh after save
+
+Opsie om nou al code te bou: Ja
+
+⸻
+
+Stap 4 — Hotkey capture + apply
+	•	Implement capture mode:
+	•	intercept keyDown
+	•	extract keycode + modifiers
+	•	validate (>=1 modifier)
+	•	attempt register
+	•	on success: save + update display
+	•	on fail: revert + show error
+	•	Ensure unregister on disable/quit
+
+Opsie om nou al code te bou: Ja
+
+⸻
+
+Stap 5 — Formatter regression + tests
+	•	Unit tests vir formatter multiline
+	•	Quick sanity tests vir ID/datumtyd
+
+Opsie om nou al code te bou: Ja (tests kan later bykom, maar beter voor release)
+
+⸻
+
+Stap 6 — Packaging (py2app) & release housekeeping
+	•	Version bump to 0.3.0 in code + setup.py + changelog
+	•	Build .app
+	•	Smoke test .app end-to-end
+
+Opsie om nou al code te bou: Ja
+
+⸻
+
+Nuwe ontwikkel-siklus (soos jy wil hê)
+
+Vanaf nou is die siklus:
+
+FS → FS review → build plan → build plan review → TS bywerken (nuwe funksies) → TS bugfixes implementeren → TS review → Code bouwen
+
+En by elke stap moet jy die opsie kry om:
+	•	Direk na code te spring, en
+	•	Later weer terug te kom na die stap waar jy was (sonder dat ons “die draad verloor”).
+
+Ek gaan dit so hanteer in ons gesprek: aan die einde van elke artefak (FS/Plan/TS/Review) gee ek ’n kort “kies jou volgende aksie” lys met minstens:
+	•	(K) Spring na kode nou
+	•	(V) Volgende siklus stap
+	•	(T) Terug na vorige stap
+	•	(R) Verfyn/aanvul
+
+⸻
+
+Wat is nou jou volgende aksie?
+
+Jy is tans by: TS v0.3 klaar + TS sanity check klaar + build plan updated.
+
+Kies een:
+	1.	(K) Spring nou na kode: Ek genereer die v0.3 code changes as commit-ready blokke (single-file) + updates vir README/setup/changelog.
+	2.	(V) TS review: Ek skryf ’n kort TS review checklist (wat jy kan afmerk) en dan spring ons na code.
+	3.	(T) Terug na build plan review: As jy die take/volgorde wil tweak voor code.
+	4.	(R) Verfyn TS: bv. default notifications = off/all, of prompt panel moet role override hê of nie.
+
+Sê net 1/2/3/4.
+
+
+```
+	2.	(V) TS review: Ek skryf ’n kort TS review checklist (wat jy kan afmerk) en dan spring ons na code.
+```
+
+Hier’s ’n TS v0.3 Review Checklist wat jy vinnig kan afmerk. Daarna gee ek jou weer die opsies (insluitend spring na kode).
+
+⸻
+
+TS v0.3 Review Checklist
+
+A) Scope & nie-scope
+	•	v0.3 fokus net op: multiline prompt panel, notifications, hotkey config UI
+	•	Floating overlay bubble is eksplisiet uit scope
+	•	Modus A default en Modus B toggle bly onveranderd
+
+B) Data & output kontrakte
+
+Mode A (loose diary)
+	•	Output bevat altyd velde: id, role, prompt, datumtijd
+	•	prompt is altyd in triple-quote blok en preserve newlines
+	•	datumtijd is YYYYMMDD (8 digits)
+
+Mode B (strict JSON)
+	•	Output is valide JSON (json.dumps)
+	•	prompt newlines word as \n ge-escape (soos JSON vereis)
+	•	json_pretty instelling bepaal indent vs compact (selfs al is dit minimal in v0.3)
+
+C) UI flows (must work)
+	•	Menu item Generate Entry doen copy → (notif as policy toelaat)
+	•	Menu item Generate with Prompt… open multiline panel
+	•	Prompt panel: Copy Entry genereer → copy → close (of bly oop, maar gedrag is konsekwent)
+	•	Menu checkmarks reflect huidige state: role, output mode, notifications mode
+
+D) Notifications
+	•	Notifications het ’n instelling: All / Hotkey only / Off
+	•	Default is Hotkey only (spam mitigation)
+	•	Permission request gebeur net wanneer nodig (enable/first send)
+	•	As user notifications deny: app crash nie; werk net sonder notif
+
+E) Hotkey & settings panel
+	•	Settings UI kan hotkey enable/disable
+	•	Settings UI kan capture hotkey:
+	•	capturing mode is duidelik vir user
+	•	minimum 1 modifier is vereis
+	•	register fail → wys fout + revert
+	•	Hotkey changes word persist (NSUserDefaults) en apply (re-register)
+	•	On quit/disable: best-effort unregister
+
+F) Reliability / thread safety
+	•	UI open/close en menu refresh gebeur op main thread
+	•	Exceptions:
+	•	clipboard fail → actionable alert
+	•	notifications fail → log/ignore
+	•	hotkey fail → log + settings waarskuwing
+
+G) Packaging & release hygiene
+	•	Version bump na 0.3.0 in:
+	•	code constants
+	•	setup.py
+	•	changelog
+	•	py2app build .app smoke test plan is in TS
+	•	App werk as .app (menu bar, panels, copy)
+
+⸻
+
+Jou volgende opsies
+	1.	Spring na kode: Ek genereer v0.3 commit-ready blokke (updated clipboard_json_logger.py + README + setup.py + CHANGELOG) volgens TS.
+	2.	Verfyn TS nou: noem watter checkbox hierbo jy wil verander (bv. notif default, prompt panel gedrag, hotkey modifiers reëls).
+	3.	Terug na build plan review: verander take/volgorde voor kode.
+
+Sê net 1, 2, of 3.
+
+```
+	1.	Spring na kode: Ek genereer v0.3 commit-ready blokke (updated clipboard_json_logger.py + README + setup.py + CHANGELOG) volgens TS.
+```
